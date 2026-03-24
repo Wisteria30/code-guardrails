@@ -441,7 +441,13 @@ fn scan_file(
 
     let rule_paths = catalog.rule_paths(selected_ids.iter().map(String::as_str));
     let inline_rules = read_inline_rules(&rule_paths)?;
-    run_ast_grep(common, catalog, &scan_root, &[canonical_file], &inline_rules)
+    run_ast_grep(
+        common,
+        catalog,
+        &scan_root,
+        &[canonical_file],
+        &inline_rules,
+    )
 }
 
 fn scan_tree(
@@ -509,10 +515,7 @@ fn ripgrep_candidate_files(scan_root: &Path) -> Result<Vec<PathBuf>, String> {
         .output()
         .map_err(|err| format!("failed to execute ripgrep: {err}"))?;
 
-    check_exit_ok(
-        &output,
-        "ripgrep candidate scan failed",
-    )?;
+    check_exit_ok(&output, "ripgrep candidate scan failed")?;
 
     Ok(String::from_utf8_lossy(&output.stdout)
         .lines()
