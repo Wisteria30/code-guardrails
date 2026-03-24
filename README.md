@@ -4,7 +4,7 @@ Claude Code plugin that detects test doubles and unapproved fallbacks in product
 
 ## Requirements
 
-[Claude Code](https://docs.anthropic.com/en/docs/claude-code), [ast-grep](https://ast-grep.github.io/), [ripgrep](https://github.com/BurntSushi/ripgrep), Python 3.10+
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Python](https://www.python.org/) 3.12+, [ast-grep](https://ast-grep.github.io/) 0.14+, [ripgrep](https://github.com/BurntSushi/ripgrep) 14.0+
 
 ## Install — 30 seconds
 
