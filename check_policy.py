@@ -5,6 +5,7 @@ import argparse
 import fnmatch
 import json
 import re
+import yaml
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -53,21 +54,21 @@ class Finding:
 def _load_rule_metadata(config_dir: Path) -> dict[str, dict]:
     """Load metadata from all rule YAML files under the config directory.
 
-    Returns a mapping from ruleId to metadata dict. Uses a simple YAML parser
-    (no external dependency) since the rule files have a flat structure.
+    Returns a mapping from ruleId to metadata dict.
     """
     global _RULE_METADATA
     if _RULE_METADATA:
         return _RULE_METADATA
 
-    # Find ruleDirs from sgconfig.yml
     sgconfig = config_dir / 'sgconfig.yml'
-    rule_dirs: list[str] = ['rules']  # default
+    rule_dirs: list[str] = ['rules']
     if sgconfig.exists():
-        for line in sgconfig.read_text(encoding='utf-8').splitlines():
-            stripped = line.strip()
-            if stripped.startswith('- '):
-                rule_dirs.append(stripped[2:].strip().strip("'\""))
+        try:
+            doc = yaml.safe_load(sgconfig.read_text(encoding='utf-8'))
+            if isinstance(doc, dict) and 'ruleDirs' in doc:
+                rule_dirs = doc['ruleDirs']
+        except (OSError, yaml.YAMLError):
+            pass
 
     seen_dirs: set[str] = set()
     for rd in rule_dirs:
@@ -82,42 +83,18 @@ def _load_rule_metadata(config_dir: Path) -> dict[str, dict]:
 
 
 def _parse_rule_yaml(yml_path: Path) -> None:
-    """Minimally parse a rule YAML to extract id and metadata block."""
+    """Parse a rule YAML to extract id and metadata block."""
     try:
         text = yml_path.read_text(encoding='utf-8')
-    except (OSError, UnicodeDecodeError):
+        doc = yaml.safe_load(text)
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
         return
-
-    rule_id: str | None = None
-    metadata: dict[str, str] = {}
-    in_metadata = False
-
-    for line in text.splitlines():
-        stripped = line.strip()
-
-        # Top-level id field
-        if line.startswith('id:'):
-            rule_id = stripped[3:].strip().strip("'\"")
-            in_metadata = False
-            continue
-
-        # Start of metadata block
-        if line.startswith('metadata:'):
-            in_metadata = True
-            continue
-
-        # Inside metadata block: read indented key: value pairs
-        if in_metadata:
-            if line and not line[0].isspace():
-                # No longer indented — left the metadata block
-                in_metadata = False
-                continue
-            if ':' in stripped:
-                key, _, val = stripped.partition(':')
-                metadata[key.strip()] = val.strip().strip("'\"")
-
-    if rule_id and metadata:
-        _RULE_METADATA[rule_id] = metadata
+    if not isinstance(doc, dict):
+        return
+    rule_id = doc.get('id')
+    metadata = doc.get('metadata')
+    if rule_id and isinstance(metadata, dict):
+        _RULE_METADATA[rule_id] = {str(k): str(v) for k, v in metadata.items()}
 
 
 def iter_json_stream(stdout: str) -> Iterator[dict]:

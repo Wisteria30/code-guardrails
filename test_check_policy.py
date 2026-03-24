@@ -113,6 +113,22 @@ def test_changed_only_approved() -> bool:
         return False
 
 
+def test_metadata_parsing() -> bool:
+    """Verify rule metadata is correctly parsed (approval model works)."""
+    # If metadata parsing breaks, approved files would return exit 1 instead of 0
+    fixture = FIXTURE_ROOT / "python" / "fallback" / "approved" / "approved_get_default.py"
+    if not fixture.exists():
+        print(f"  {YELLOW}SKIP{RESET} fixture not found: {fixture}")
+        return True
+    proc = run_check_policy("--changed-only", str(fixture), "--format", "json")
+    if proc.returncode == 0 and not proc.stdout.strip():
+        print(f"  {GREEN}PASS{RESET} metadata parsing: approved file correctly suppressed (0 JSON lines)")
+        return True
+    else:
+        print(f"  {RED}FAIL{RESET} metadata parsing: exit {proc.returncode}, stdout lines: {len(proc.stdout.strip().splitlines())}")
+        return False
+
+
 def test_test_globs_skip() -> bool:
     """--test-globs causes test files to be skipped (exit 0)."""
     # Use a should_fail fixture but pretend it's in a test directory
@@ -143,6 +159,7 @@ def main() -> int:
         test_changed_only_should_pass,
         test_format_json,
         test_changed_only_approved,
+        test_metadata_parsing,
         test_test_globs_skip,
     ]
 
