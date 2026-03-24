@@ -73,7 +73,7 @@ For first-time contributors:
 # Fork on GitHub, then:
 git clone https://github.com/<your-username>/code-guardrails.git
 cd code-guardrails
-./setup                          # installs ast-grep, ripgrep if missing; compiles .pyc
+./setup                          # installs ast-grep and ripgrep if missing; builds the Rust engine
 git checkout -b feat/add-<rule-name>
 ```
 
@@ -275,7 +275,7 @@ Every `should_fail` fixture must be detected. Every `should_pass` fixture must h
 ### 5b. Smoke test on a real project (optional but recommended)
 
 ```bash
-python3 check_policy.py --config-dir . /path/to/your/project
+./bin/code-guardrails-engine scan-tree --root /path/to/your/project --config-dir . --format human
 ```
 
 Check for false positives in real code. If too many appear, tighten the pattern.
@@ -291,18 +291,18 @@ Check for false positives in real code. If too many appear, tighten the pattern.
 
 ---
 
-## Step 6: Update ripgrep Pre-filter (if needed)
+## Step 6: Update Rust Candidate Selection (if needed)
 
-Check `_RG_PATTERN` in `check_policy.py`. This regex pre-filters files with ripgrep before ast-grep runs — it should be looser than the actual rules.
+Check `detect_rule_ids` in `src/main.rs`. This is the Rust-side candidate selector that decides whether a file needs an `ast-grep` scan, so it should stay looser than the actual rule patterns.
 
-```python
-_RG_PATTERN = (
-    r"mock|stub|fake|= .* or |\?\?|\|\||except.*pass|catch|suppress|getattr|getenv|\.get\("
-)
+```rust
+if lower.contains("your_keyword") {
+    ids.insert("your-rule-id".to_string());
+}
 ```
 
-If your rule's keywords are already covered, no change needed.
-If not, append `|your_keyword` to the pattern.
+If your rule's keywords are already covered, no change is needed.
+If not, add a broad-enough selector so the engine still sends candidate files to `ast-grep`.
 
 ---
 
@@ -323,7 +323,7 @@ fix: reduce false {positives|negatives} in {rule-id} — {what changed}
 ### Open the PR
 
 ```bash
-git add rules/ fixtures/ check_policy.py  # only files you changed
+git add rules/ fixtures/ src/main.rs  # only files you changed
 git commit
 git push -u origin feat/add-<rule-name>
 ```
