@@ -1,14 +1,120 @@
 # code-guardrails
 
-Claude Code plugin that detects test doubles and unapproved fallbacks in production code. AI coding tools silently introduce mock/stub/fake objects and fallback behaviors — this plugin catches them.
+**AI が書いたコードに紛れ込む「握りつぶし」と「ハリボテ」を自動検出する Claude Code プラグイン**
 
-## Requirements
+AI コーディングツールは、動くコードを素早く生成します。しかしその裏で、エラーを `pass` で握りつぶしたり、`mock` オブジェクトを本番コードに残したり、`?? "default"` で問題を先送りにすることがあります。レビューで見落とせば、それがそのまま本番に入ります。
 
-[Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Python](https://www.python.org/) 3.12+, [ast-grep](https://ast-grep.github.io/) 0.14+, [ripgrep](https://github.com/BurntSushi/ripgrep) 14.0+
+code-guardrails は、ファイル保存のたびに ast-grep でコードを構文解析し、こうしたパターンを即座に検出して Claude に警告します。
 
-## Install — 30 seconds
+---
 
-### Prerequisites
+## What It Catches
+
+### Test doubles in production code
+
+本番コードに mock / stub / fake が残っていたら即エラー。テストファイルでは無視します。
+
+```python
+# NG — 本番コードに mock が残っている
+mock_client = MockHttpClient()
+from unittest.mock import patch
+```
+
+```python
+# OK — テストファイル内なら問題なし (test_*.py, **/tests/** 等)
+mock_client = MockHttpClient()
+```
+
+### Unapproved fallbacks
+
+エラーを握りつぶす・暗黙のデフォルト値で誤魔化すパターンを検出します。
+適切なエラーハンドリング（ログ出力、re-raise、エラー変換）は検出しません。
+
+#### Python
+
+```python
+# NG — 例外の握りつぶし
+try:
+    connect()
+except ConnectionError:
+    pass
+
+# NG — 暗黙のデフォルト値
+timeout = config.get("timeout", 30)
+name = user_name or "unknown"
+port = os.getenv("PORT", "8080")
+val = getattr(obj, "attr", None)
+
+# NG — エラーの黙殺
+with contextlib.suppress(KeyError):
+    process(data)
+```
+
+```python
+# OK — 例外を適切に処理している
+try:
+    connect()
+except ConnectionError as e:
+    logger.error(f"Connection failed: {e}")
+    raise ServiceUnavailable("DB unreachable") from e
+
+# OK — デフォルト引数なしの .get()
+value = config.get("timeout")
+
+# OK — 条件分岐での or（代入ではない）
+if user_name or fallback_name:
+    greet()
+```
+
+#### TypeScript
+
+```typescript
+// NG — デフォルト値でごまかす
+const port = config.port ?? 3000;
+const name = input || "default";
+options.timeout ||= 5000;
+cache ??= new Map();
+
+// NG — catch で握りつぶし
+try { await fetch(url); } catch (e) { return []; }
+try { parse(json); } catch {}
+fetch(url).catch(() => null);
+```
+
+```typescript
+// OK — 例外を適切に処理している
+try {
+  await fetch(url);
+} catch (e) {
+  logger.error(e);
+  throw new FetchError("request failed", { cause: e });
+}
+
+// OK — catch で再 throw
+promise.catch((e) => { throw new AppError(e); });
+```
+
+### Approval model
+
+意図的なフォールバックには、隣接コメントで承認を明示できます。
+
+```python
+# policy-approved: REQ-123 explicit locale default
+lang = payload.get("lang", "ja-JP")
+```
+
+```typescript
+// policy-approved: ADR-7 demo-mode fallback
+const label = apiValue ?? "demo";
+```
+
+プレフィックスは `REQ-`, `ADR-`, `SPEC-` + 識別子。
+
+---
+
+## Install
+
+**前提:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [ast-grep](https://ast-grep.github.io/) 0.14+, [ripgrep](https://github.com/BurntSushi/ripgrep) 14.0+
 
 ```bash
 brew install ast-grep ripgrep
@@ -16,14 +122,14 @@ brew install ast-grep ripgrep
 
 ### Option A: Marketplace (recommended)
 
-Run these in Claude Code:
+Claude Code 内で実行:
 
 ```
 /plugin marketplace add Wisteria30/code-guardrails
 /plugin install code-guardrails@code-guardrails-marketplace
 ```
 
-Restart Claude Code. Confirm with `/scan`.
+再起動して `/scan` で確認。
 
 ### Option B: Git clone
 
@@ -32,9 +138,9 @@ git clone https://github.com/Wisteria30/code-guardrails.git ~/.claude/plugins/co
 ~/.claude/plugins/code-guardrails/setup
 ```
 
-Restart Claude Code.
+再起動。
 
-### Add to your repo so teammates get it (optional)
+### チームで共有する (optional)
 
 ```bash
 cp -Rf ~/.claude/plugins/code-guardrails .claude/plugins/code-guardrails
@@ -42,67 +148,79 @@ rm -rf .claude/plugins/code-guardrails/.git
 git add .claude/plugins/code-guardrails && git commit -m "chore: add code-guardrails plugin"
 ```
 
-## What it does
+---
 
-**PostToolUse hook** — After every Edit/Write, automatically scans the changed file and warns Claude if violations are found.
+## How It Works
 
-**`/scan` command** — Full project scan on demand.
+| トリガー | 動作 |
+|---|---|
+| **PostToolUse hook** | Edit / Write のたびに変更ファイルを自動スキャン。違反があれば Claude に即警告 |
+| **`/scan` command** | プロジェクト全体をオンデマンドでスキャン |
 
-## Two policies
+17 rules (Python 9 + TypeScript 8)。すべて 34+ のテストフィクスチャで検証済み。
+テストパス (`**/test/**`, `**/tests/**`, `**/*_test.py`, `*.test.ts` 等) は全ルールで除外。
 
-### 1. No test doubles in production
-- `mock`, `stub`, `fake` identifiers banned outside test files
-- `unittest.mock` imports banned outside test files
-- No exceptions.
+---
 
-### 2. No unapproved fallbacks
-- Default values in `.get()`, `getattr()`, `next()`, `os.getenv()` flagged
-- `or` fallbacks in assignments (`x = a or b`) flagged
-- `??`, `||`, `??=`, `||=` in TypeScript flagged
-- `except: pass`, `contextlib.suppress`, empty catch blocks flagged
-- Promise `.catch(() => default)` flagged
+## Detection Rules
 
-### Approval model
+### Python
 
-To approve an intentional fallback, add a comment within 2 lines above:
+| Rule | Pattern | Example |
+|---|---|---|
+| `py-no-swallowing-except-pass` | `except ...: pass` | `except ValueError: pass` |
+| `py-no-fallback-bool-or` | `x = a or b` | `name = val or "default"` |
+| `py-no-fallback-get-default` | `.get(key, default)` | `d.get("k", 0)` |
+| `py-no-fallback-getattr-default` | `getattr(o, n, default)` | `getattr(o, "x", None)` |
+| `py-no-fallback-next-default` | `next(iter, default)` | `next(gen, None)` |
+| `py-no-fallback-os-getenv-default` | `os.getenv(k, default)` | `os.getenv("PORT", "8080")` |
+| `py-no-fallback-contextlib-suppress` | `contextlib.suppress(...)` | `with suppress(KeyError):` |
+| `py-no-test-double-identifier` | identifier matching `mock\|stub\|fake` | `mock_client` |
+| `py-no-test-double-unittest-mock` | `import unittest.mock` | `from unittest.mock import patch` |
 
-```python
-# policy-approved: REQ-123 explicit locale default
-lang = payload.get("lang", "ja-JP")
-```
+### TypeScript
 
-```typescript
-// policy-approved: ADR-7 explicit demo-mode fallback
-const label = apiValue ?? "demo";
-```
+| Rule | Pattern | Example |
+|---|---|---|
+| `ts-no-fallback-or` | `a \|\| b` | `val \|\| "default"` |
+| `ts-no-fallback-nullish` | `a ?? b` | `port ?? 3000` |
+| `ts-no-fallback-or-assign` | `a \|\|= b` | `opt.x \|\|= 5` |
+| `ts-no-fallback-nullish-assign` | `a ??= b` | `cache ??= new Map()` |
+| `ts-no-catch-return-default` | `catch { return default }` | `catch(e) { return [] }` |
+| `ts-no-empty-catch` | `catch {}` | `catch(e) {}` |
+| `ts-no-promise-catch-default` | `.catch(() => default)` | `.catch(() => null)` |
+| `ts-no-test-double-identifier` | identifier matching `mock\|stub\|fake` | `mockFetch` |
 
-Prefix must be `REQ-`, `ADR-`, or `SPEC-` followed by an identifier.
+---
 
-## CLI usage
+## CLI Usage
 
 ```bash
 # Full project scan
 python check_policy.py .
 
-# Single file scan
+# Single file
 python check_policy.py --changed-only path/to/file.py
 
-# JSON output (for CI/hooks)
+# JSON output (CI / hooks)
 python check_policy.py --changed-only file.py --format json
 ```
 
-## Rules
-
-17 rules: 9 Python + 8 TypeScript. All validated against 34+ test fixtures.
-
-Test paths (`**/test/**`, `**/tests/**`, `**/*_test.py`, etc.) are excluded from all rules.
+---
 
 ## Development
 
 ```bash
-# Run rule validation tests
-python test_rules.py
-
-# Run CLI tests
-python test_check_policy.py
+python test_rules.py        # Rule validation tests
+python test_check_policy.py  # CLI tests
 ```
+
+---
+
+## Requirements
+
+Python 3.12+, [ast-grep](https://ast-grep.github.io/) 0.14+, [ripgrep](https://github.com/BurntSushi/ripgrep) 14.0+
+
+## License
+
+MIT
