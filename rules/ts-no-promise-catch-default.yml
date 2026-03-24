@@ -11,6 +11,7 @@ ignores:
   - '**/*.test.ts'
   - '**/*.spec.ts'
   - '**/__tests__/**'
+  - '**/generated/**'
 rule:
   any:
     - pattern: $PROM.catch(($ERR) => $DEFAULT)

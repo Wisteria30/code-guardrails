@@ -11,6 +11,7 @@ ignores:
   - '**/*.test.ts'
   - '**/*.spec.ts'
   - '**/__tests__/**'
+  - '**/generated/**'
 rule:
   pattern: $A ??= $B
 message: 'Potential fallback detected via `??=`'

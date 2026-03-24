@@ -9,6 +9,7 @@ ignores:
   - '**/*_test.py'
   - '**/test_*.py'
   - '**/conftest.py'
+  - '**/generated/**'
 rule:
   pattern: getattr($OBJ, $NAME, $DEFAULT)
 message: 'Potential fallback detected via `getattr(..., default)`'
