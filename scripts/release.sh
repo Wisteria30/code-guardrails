@@ -13,6 +13,17 @@ fi
 VERSION="$1"
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Validate: new version must be greater than current
+CURRENT=$(grep '^version' "$DIR/Cargo.toml" | head -1 | sed 's/.*"\(.*\)"/\1/')
+IFS='.' read -r CUR_MAJOR CUR_MINOR CUR_PATCH <<< "$CURRENT"
+IFS='.' read -r NEW_MAJOR NEW_MINOR NEW_PATCH <<< "$VERSION"
+CUR_NUM=$((CUR_MAJOR * 10000 + CUR_MINOR * 100 + ${CUR_PATCH:-0}))
+NEW_NUM=$((NEW_MAJOR * 10000 + NEW_MINOR * 100 + ${NEW_PATCH:-0}))
+if [ "$NEW_NUM" -le "$CUR_NUM" ]; then
+  echo "Error: new version ($VERSION) must be greater than current ($CURRENT)" >&2
+  exit 1
+fi
+
 sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" "$DIR/Cargo.toml"
 sed -i '' "s/\"version\": *\"[^\"]*\"/\"version\": \"$VERSION\"/" \
   "$DIR/.claude-plugin/plugin.json" \
