@@ -10,6 +10,10 @@ ignores:
   - '**/test_*.py'
   - '**/conftest.py'
   - '**/generated/**'
+  - '**/openapi/**'
+  - '**/swagger/**'
+  - '**/codegen/**'
+  - '**/__generated__/**'
 rule:
   pattern: $VAR = $A or $B
 message: 'Potential fallback detected via Python `or` in assignment'

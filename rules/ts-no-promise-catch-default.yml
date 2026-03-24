@@ -12,6 +12,10 @@ ignores:
   - '**/*.spec.ts'
   - '**/__tests__/**'
   - '**/generated/**'
+  - '**/openapi/**'
+  - '**/swagger/**'
+  - '**/codegen/**'
+  - '**/__generated__/**'
 rule:
   any:
     - pattern: $PROM.catch(($ERR) => $DEFAULT)

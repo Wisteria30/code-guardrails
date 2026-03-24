@@ -10,8 +10,14 @@ ignores:
   - '**/test_*.py'
   - '**/conftest.py'
   - '**/generated/**'
+  - '**/openapi/**'
+  - '**/swagger/**'
+  - '**/codegen/**'
+  - '**/__generated__/**'
 rule:
   pattern: $OBJ.get($KEY, $DEFAULT)
+  not:
+    pattern: router.get($KEY, $DEFAULT)
 message: 'Potential fallback detected via `.get(..., default)`'
 note: 'Fallback behavior is forbidden unless explicitly approved in requirements. If this one is intentional, add an adjacent `policy-approved: REQ-...` comment.'
 metadata:

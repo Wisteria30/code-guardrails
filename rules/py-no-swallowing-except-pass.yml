@@ -10,6 +10,10 @@ ignores:
   - '**/test_*.py'
   - '**/conftest.py'
   - '**/generated/**'
+  - '**/openapi/**'
+  - '**/swagger/**'
+  - '**/codegen/**'
+  - '**/__generated__/**'
 rule:
   any:
     - pattern: |
