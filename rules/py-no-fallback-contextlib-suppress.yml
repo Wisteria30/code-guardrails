@@ -1,0 +1,20 @@
+id: py-no-fallback-contextlib-suppress
+language: Python
+severity: error
+files:
+  - '**/*.py'
+ignores:
+  - '**/test/**'
+  - '**/tests/**'
+  - '**/*_test.py'
+  - '**/test_*.py'
+  - '**/conftest.py'
+rule:
+  pattern: |
+    with contextlib.suppress($$$ERRS):
+      $$$BODY
+message: 'Potential fallback detected via contextlib.suppress'
+note: 'Fallback behavior is forbidden unless explicitly approved in requirements. If this one is intentional, add an adjacent `policy-approved: REQ-...` comment.'
+metadata:
+  policy_group: fallback
+  approval_mode: adjacent_policy_comment

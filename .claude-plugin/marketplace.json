@@ -1,0 +1,24 @@
+{
+  "name": "code-guardrails-marketplace",
+  "owner": {
+    "name": "Wisteria30"
+  },
+  "metadata": {
+    "description": "Static analysis guardrails for AI-generated code"
+  },
+  "plugins": [
+    {
+      "name": "code-guardrails",
+      "source": "./",
+      "description": "Detect test doubles and unapproved fallbacks in production code. AI coding tools silently introduce mock/stub/fake objects and fallback behaviors — this plugin catches them.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Wisteria30"
+      },
+      "repository": "https://github.com/Wisteria30/code-guardrails",
+      "license": "MIT",
+      "keywords": ["static-analysis", "ast-grep", "code-quality", "guardrails", "ai-coding"],
+      "category": "code-quality"
+    }
+  ]
+}

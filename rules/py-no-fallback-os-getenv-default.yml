@@ -1,0 +1,20 @@
+id: py-no-fallback-os-getenv-default
+language: Python
+severity: error
+files:
+  - '**/*.py'
+ignores:
+  - '**/test/**'
+  - '**/tests/**'
+  - '**/*_test.py'
+  - '**/test_*.py'
+  - '**/conftest.py'
+rule:
+  any:
+    - pattern: os.getenv($KEY, $DEFAULT)
+    - pattern: os.environ.get($KEY, $DEFAULT)
+message: 'Potential fallback detected via environment default'
+note: 'Fallback behavior is forbidden unless explicitly approved in requirements. If this one is intentional, add an adjacent `policy-approved: REQ-...` comment.'
+metadata:
+  policy_group: fallback
+  approval_mode: adjacent_policy_comment

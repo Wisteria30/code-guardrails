@@ -1,0 +1,3 @@
+If your repo uses TSX, duplicate the TypeScript rules with:
+  language: Tsx
+and TSX file globs.

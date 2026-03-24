@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+RED='\033[91m'
+GREEN='\033[92m'
+YELLOW='\033[93m'
+RESET='\033[0m'
+
+ISSUES=0
+
+check_tool() {
+  local tool="$1"
+  local install_hint="$2"
+  if command -v "$tool" &>/dev/null; then
+    echo -e "${GREEN}OK${RESET} $tool ($(command -v "$tool"))"
+    return 0
+  else
+    echo -e "${RED}MISSING${RESET} $tool"
+    echo "  Install: $install_hint"
+    return 1
+  fi
+}
+
+check_version() {
+  local tool="$1"
+  local current="$2"
+  local minimum="$3"
+  # Compare version strings (major.minor only)
+  local cur_major cur_minor min_major min_minor
+  cur_major=$(echo "$current" | cut -d. -f1)
+  cur_minor=$(echo "$current" | cut -d. -f2)
+  min_major=$(echo "$minimum" | cut -d. -f1)
+  min_minor=$(echo "$minimum" | cut -d. -f2)
+  if [ "$cur_major" -gt "$min_major" ] 2>/dev/null || \
+     { [ "$cur_major" -eq "$min_major" ] 2>/dev/null && [ "$cur_minor" -ge "$min_minor" ] 2>/dev/null; }; then
+    echo -e "  ${GREEN}version ${current} >= ${minimum}${RESET}"
+    return 0
+  else
+    echo -e "  ${RED}version ${current} < ${minimum} (need ${minimum}+)${RESET}"
+    return 1
+  fi
+}
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+echo "code-guardrails setup"
+echo "====================="
+echo ""
+
+# --- Python 3.12+ ---
+check_tool "python3" "https://www.python.org/downloads/" || ISSUES=1
+if command -v python3 &>/dev/null; then
+  PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+  check_version "python3" "$PY_VER" "3.12" || ISSUES=1
+fi
+
+# --- ast-grep 0.14+ ---
+check_tool "ast-grep" "brew install ast-grep  OR  cargo install ast-grep --locked" || ISSUES=1
+if command -v ast-grep &>/dev/null; then
+  AG_VER=$(ast-grep --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)
+  check_version "ast-grep" "$AG_VER" "0.14" || ISSUES=1
+fi
+
+# --- ripgrep 14.0+ ---
+check_tool "rg" "brew install ripgrep  OR  cargo install ripgrep" || ISSUES=1
+if command -v rg &>/dev/null; then
+  RG_VER=$(rg --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)
+  check_version "ripgrep" "$RG_VER" "14.0" || ISSUES=1
+fi
+
+# --- PyYAML 6.0+ ---
+echo ""
+if python3 -c "import yaml" 2>/dev/null; then
+  echo -e "${GREEN}OK${RESET} PyYAML"
+  YAML_VER=$(python3 -c "import yaml; print(yaml.__version__)" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)
+  check_version "PyYAML" "$YAML_VER" "6.0" || ISSUES=1
+else
+  echo -e "${YELLOW}MISSING${RESET} PyYAML — installing..."
+  python3 -m pip install --quiet "PyYAML>=6.0" && echo -e "  ${GREEN}installed${RESET}" || { echo -e "  ${RED}failed${RESET}"; ISSUES=1; }
+fi
+
+echo ""
+if [ "$ISSUES" -ne 0 ]; then
+  echo -e "${RED}Some dependencies are missing or outdated. Fix them and re-run setup.${RESET}"
+  exit 1
+fi
+
+echo -e "${GREEN}All dependencies OK. code-guardrails is ready.${RESET}"
