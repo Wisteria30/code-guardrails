@@ -1,8 +1,4 @@
 .DS_Store
 fixtures/**/node_modules/
 target/
-__pycache__/
 bin/
-.mypy_cache/
-.pytest_cache/
-.ruff_cache/

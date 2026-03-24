@@ -442,7 +442,7 @@ fn scan_file(
     // Prefilter: skip rg spawn when no keywords in file (~4ms savings on clean files)
     if keyword_comment_regex().is_match(&content) {
         findings.extend(ripgrep_keyword_comments(
-            &[canonical_file.clone()],
+            std::slice::from_ref(&canonical_file),
             &scan_root,
         )?);
     }

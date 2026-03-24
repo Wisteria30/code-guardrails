@@ -31,12 +31,6 @@ cargo clippy -- -D warnings
 # Run without pre-built binary
 cargo run --quiet --release --bin code-guardrails-engine -- scan-tree --root . --config-dir .
 
-# Python tests (dev helper, requires Python 3.12+)
-pytest
-
-# Benchmark
-python scripts/bench.py --iterations 10
-
 # Release (syncs version across Cargo.toml, plugin.json, marketplace.json)
 scripts/release.sh <version>
 ```
@@ -82,7 +76,7 @@ CI `version-lint` job enforces version bump when `src/`, `hooks/`, `rules/`, `co
 Always prefer simplicity over pathological correctness. YAGNI, KISS, DRY.
 No backward-compat shims or fallback paths unless they come free without adding cyclomatic complexity.
 
-The core stack is Rust + ast-grep + ripgrep. Before introducing new dependencies (Python, Node, etc.), first consider whether the task can be accomplished with the existing stack. Python (`pytest`, `scripts/bench.py`) exists only as dev helpers — do not expand its role into the runtime path.
+The core stack is Rust + ast-grep + ripgrep. Before introducing new dependencies (Python, Node, etc.), first consider whether the task can be accomplished with the existing stack.
 
 Performance is as important as — or more important than — detection accuracy. This plugin runs on every Edit/Write via PostToolUse hook, so scan-file and scan-hook must stay under 100ms. Never add processing that degrades hot-path latency (e.g., spawning extra processes, reading unnecessary files, network calls).
 
