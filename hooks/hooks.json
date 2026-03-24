@@ -1,6 +1,17 @@
 {
   "description": "Scan edited files for policy violations (test doubles and unapproved fallbacks)",
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "test -x ${CLAUDE_PLUGIN_ROOT}/bin/code-guardrails-engine || bash ${CLAUDE_PLUGIN_ROOT}/setup 2>&1",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
