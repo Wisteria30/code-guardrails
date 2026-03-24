@@ -3,6 +3,12 @@ language: Python
 severity: error
 files:
   - '**/*.py'
+ignores:
+  - '**/test/**'
+  - '**/tests/**'
+  - '**/*_test.py'
+  - '**/test_*.py'
+  - '**/conftest.py'
 rule:
   pattern: next($ITER, $DEFAULT)
 message: 'Potential fallback detected via `next(..., default)`'
