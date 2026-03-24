@@ -2,20 +2,31 @@
 
 Claude Code plugin that detects test doubles and unapproved fallbacks in production code. AI coding tools silently introduce mock/stub/fake objects and fallback behaviors — this plugin catches them.
 
-## Install
+## Requirements
 
-```bash
-# Project-local (recommended)
-git clone https://github.com/Wisteria30/code-guardrails .claude/plugins/code-guardrails
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code), [ast-grep](https://ast-grep.github.io/), [ripgrep](https://github.com/BurntSushi/ripgrep), Python 3.10+
 
-# Or user-global
-git clone https://github.com/Wisteria30/code-guardrails ~/.claude/plugins/code-guardrails
+## Install (~30 seconds)
 
-# Verify dependencies
-.claude/plugins/code-guardrails/setup
+### Step 1: Install on your machine
+
+Open Claude Code and paste:
+
+```
+git clone https://github.com/Wisteria30/code-guardrails.git ~/.claude/plugins/code-guardrails && ~/.claude/plugins/code-guardrails/setup
 ```
 
-Requires: [ast-grep](https://ast-grep.github.io/), [ripgrep](https://github.com/BurntSushi/ripgrep), Python 3.10+
+Done. Every Claude Code session now has guardrails active.
+
+### Step 2: Add to your repo (optional)
+
+Share with teammates — paste in Claude Code:
+
+```
+cp -Rf ~/.claude/plugins/code-guardrails .claude/plugins/code-guardrails && rm -rf .claude/plugins/code-guardrails/.git && .claude/plugins/code-guardrails/setup
+```
+
+Files are committed directly to your repo, not as a submodule. Everything stays in `.claude/plugins/`.
 
 ## What it does
 
