@@ -85,4 +85,8 @@ if [ "$ISSUES" -ne 0 ]; then
   exit 1
 fi
 
+# --- Pre-compile .pyc for fast first run ---
+python3 -m compileall -q "$SCRIPT_DIR/check_policy.py" 2>/dev/null && \
+  echo -e "${GREEN}OK${RESET} bytecode pre-compiled" || true
+
 echo -e "${GREEN}All dependencies OK. code-guardrails is ready.${RESET}"
