@@ -94,6 +94,7 @@ struct CommonOptions {
     test_globs: Vec<String>,
 }
 
+#[allow(clippy::enum_variant_names)]
 enum Mode {
     ScanFile { file: PathBuf },
     ScanTree { root: PathBuf },
