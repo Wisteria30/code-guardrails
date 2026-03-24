@@ -158,10 +158,16 @@ fn format_json_outputs_valid_json_lines() {
     for line in lines {
         let payload: serde_json::Value =
             serde_json::from_str(&line).expect("expected valid JSON output");
-        for key in [
-            "file", "line", "column", "rule_id", "severity", "message", "code",
-        ] {
-            assert!(payload.get(key).is_some(), "missing key: {key}");
+        assert!(payload.get("policy_group").is_some(), "missing key: policy_group");
+        assert!(payload.get("count").is_some(), "missing key: count");
+        let findings = payload.get("findings").and_then(|v| v.as_array()).expect("missing key: findings");
+        assert!(!findings.is_empty());
+        for finding in findings {
+            for key in [
+                "file", "line", "column", "rule_id", "severity", "message", "code",
+            ] {
+                assert!(finding.get(key).is_some(), "missing key in finding: {key}");
+            }
         }
     }
 }
@@ -219,8 +225,9 @@ fn full_scan_works_when_root_differs_from_config_dir() {
     assert!(!lines.is_empty());
     let payload: serde_json::Value =
         serde_json::from_str(&lines[0]).expect("expected valid JSON output");
+    let findings = payload.get("findings").and_then(|v| v.as_array()).expect("missing findings");
     assert_eq!(
-        payload.get("file").and_then(|value| value.as_str()),
+        findings[0].get("file").and_then(|value| value.as_str()),
         Some("nullishCoalescing.ts")
     );
 
@@ -322,8 +329,9 @@ fn changed_only_relative_path_uses_caller_workdir() {
     assert!(!lines.is_empty());
     let payload: serde_json::Value =
         serde_json::from_str(&lines[0]).expect("expected valid JSON output");
+    let findings = payload.get("findings").and_then(|v| v.as_array()).expect("missing findings");
     assert_eq!(
-        payload.get("file").and_then(|value| value.as_str()),
+        findings[0].get("file").and_then(|value| value.as_str()),
         Some("or_default.py")
     );
 

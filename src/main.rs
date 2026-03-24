@@ -112,7 +112,7 @@ impl Cli {
         let mut common = CommonOptions {
             config_dir: find_default_config_dir(&script_dir),
             ast_grep_bin: "ast-grep".to_string(),
-            format: OutputFormat::Human,
+            format: OutputFormat::Json,
             test_globs: DEFAULT_TEST_GLOBS
                 .iter()
                 .map(|s| (*s).to_string())
@@ -763,42 +763,245 @@ fn write_err(err: io::Error) -> String {
     format!("failed to write output: {err}")
 }
 
+fn char_width(c: char) -> usize {
+    let cp = c as u32;
+    if (0x1100..=0x115F).contains(&cp)
+        || (0x2E80..=0x33BF).contains(&cp)
+        || (0x3400..=0x4DBF).contains(&cp)
+        || (0x4E00..=0xA4CF).contains(&cp)
+        || (0xAC00..=0xD7AF).contains(&cp)
+        || (0xF900..=0xFAFF).contains(&cp)
+        || (0xFE30..=0xFE6F).contains(&cp)
+        || (0xFF01..=0xFF60).contains(&cp)
+        || (0xFFE0..=0xFFE6).contains(&cp)
+        || cp >= 0x20000
+    {
+        2
+    } else {
+        1
+    }
+}
+
+fn str_width(s: &str) -> usize {
+    s.chars().map(char_width).sum()
+}
+
+fn pad_to_width(s: &str, target: usize) -> String {
+    let w = str_width(s);
+    if w >= target {
+        s.to_string()
+    } else {
+        format!("{}{}", s, " ".repeat(target - w))
+    }
+}
+
+fn truncate_display(s: &str, max_width: usize) -> String {
+    let total = str_width(s);
+    if total <= max_width {
+        return s.to_string();
+    }
+    if max_width < 3 {
+        return "..".to_string();
+    }
+    let mut width = 0;
+    let mut result = String::new();
+    for c in s.chars() {
+        let cw = char_width(c);
+        if width + cw > max_width - 2 {
+            result.push_str("..");
+            return result;
+        }
+        result.push(c);
+        width += cw;
+    }
+    result
+}
+
+struct Table {
+    headers: Vec<String>,
+    rows: Vec<Vec<String>>,
+}
+
+impl Table {
+    fn render(&self, indent: &str) -> String {
+        let col_count = self.headers.len();
+        let mut widths: Vec<usize> = self.headers.iter().map(|h| str_width(h)).collect();
+        for row in &self.rows {
+            for (i, cell) in row.iter().enumerate() {
+                if i < col_count {
+                    widths[i] = widths[i].max(str_width(cell));
+                }
+            }
+        }
+
+        let mut out = String::new();
+
+        // Top border
+        out.push_str(indent);
+        out.push('┌');
+        for (i, &w) in widths.iter().enumerate() {
+            out.push_str(&"─".repeat(w + 2));
+            out.push(if i < col_count - 1 { '┬' } else { '┐' });
+        }
+        out.push('\n');
+
+        // Header row
+        out.push_str(indent);
+        out.push('│');
+        for (i, h) in self.headers.iter().enumerate() {
+            out.push(' ');
+            out.push_str(&pad_to_width(h, widths[i]));
+            out.push_str(" │");
+        }
+        out.push('\n');
+
+        // Header separator
+        out.push_str(indent);
+        out.push('├');
+        for (i, &w) in widths.iter().enumerate() {
+            out.push_str(&"─".repeat(w + 2));
+            out.push(if i < col_count - 1 { '┼' } else { '┤' });
+        }
+        out.push('\n');
+
+        // Data rows with separators
+        for (row_idx, row) in self.rows.iter().enumerate() {
+            out.push_str(indent);
+            out.push('│');
+            for (i, cell) in row.iter().enumerate() {
+                if i < col_count {
+                    out.push(' ');
+                    out.push_str(&pad_to_width(cell, widths[i]));
+                    out.push_str(" │");
+                }
+            }
+            out.push('\n');
+
+            if row_idx < self.rows.len() - 1 {
+                out.push_str(indent);
+                out.push('├');
+                for (i, &w) in widths.iter().enumerate() {
+                    out.push_str(&"─".repeat(w + 2));
+                    out.push(if i < col_count - 1 { '┼' } else { '┤' });
+                }
+                out.push('\n');
+            }
+        }
+
+        // Bottom border
+        out.push_str(indent);
+        out.push('└');
+        for (i, &w) in widths.iter().enumerate() {
+            out.push_str(&"─".repeat(w + 2));
+            out.push(if i < col_count - 1 { '┴' } else { '┘' });
+        }
+        out.push('\n');
+
+        out
+    }
+}
+
 fn format_human(unsuppressed: &[Finding], approved: &[Finding]) -> Result<(), String> {
     let use_color = io::stdout().is_terminal();
-    let (red, yellow, cyan, dim, reset) = if use_color {
-        ("\x1b[91m", "\x1b[93m", "\x1b[96m", "\x1b[2m", "\x1b[0m")
+    let (bold_red, bold_yellow, dim, reset) = if use_color {
+        ("\x1b[1;91m", "\x1b[1;93m", "\x1b[2m", "\x1b[0m")
     } else {
-        ("", "", "", "", "")
+        ("", "", "", "")
     };
 
-    let mut out = io::stdout().lock();
-    for finding in unsuppressed {
-        writeln!(
-            out,
-            "{cyan}{}:{}:{}{reset}: {red}{}{reset}[{yellow}{}{reset}] {}",
-            finding.display_file,
-            finding.line0 + 1,
-            finding.column0 + 1,
-            finding.severity,
-            finding.rule_id,
-            finding.message,
-        )
-        .map_err(write_err)?;
-        if let Some(note) = &finding.note {
-            writeln!(out, "  {dim}note: {note}{reset}").map_err(write_err)?;
-        }
-        let snippet = finding.snippet();
-        if !snippet.is_empty() {
-            writeln!(out, "  {dim}code: {snippet}{reset}").map_err(write_err)?;
+    let mut violations: Vec<&Finding> = Vec::new();
+    let mut fallbacks: Vec<&Finding> = Vec::new();
+
+    for f in unsuppressed {
+        match f.metadata.get("policy_group").map(String::as_str) {
+            Some("test-double") => violations.push(f),
+            _ => fallbacks.push(f),
         }
     }
 
+    let mut out = io::stdout().lock();
+
+    // === 真の違反（要対応）===
+    if !violations.is_empty() {
+        writeln!(out, "{bold_red}真の違反（要対応）{reset}").map_err(write_err)?;
+        writeln!(out).map_err(write_err)?;
+
+        let mut groups: Vec<(&str, Vec<&Finding>)> = Vec::new();
+        for f in &violations {
+            let msg = f.message.as_str();
+            if let Some(entry) = groups.iter_mut().find(|(m, _)| *m == msg) {
+                entry.1.push(f);
+            } else {
+                groups.push((msg, vec![f]));
+            }
+        }
+
+        for (msg, findings) in &groups {
+            writeln!(out, "  {msg}").map_err(write_err)?;
+            writeln!(out).map_err(write_err)?;
+
+            let table = Table {
+                headers: vec![
+                    "ファイル".to_string(),
+                    "行".to_string(),
+                    "コード".to_string(),
+                ],
+                rows: findings
+                    .iter()
+                    .map(|f| {
+                        vec![
+                            f.display_file.clone(),
+                            (f.line0 + 1).to_string(),
+                            truncate_display(&f.snippet(), 60),
+                        ]
+                    })
+                    .collect(),
+            };
+            write!(out, "{}", table.render("  ")).map_err(write_err)?;
+            writeln!(out).map_err(write_err)?;
+        }
+    }
+
+    // === fallback（要判断）===
+    if !fallbacks.is_empty() {
+        writeln!(out, "{bold_yellow}fallback（要判断）{reset}").map_err(write_err)?;
+        writeln!(out).map_err(write_err)?;
+
+        let mut summary: Vec<(String, String, usize)> = Vec::new();
+        for f in &fallbacks {
+            if let Some(entry) = summary
+                .iter_mut()
+                .find(|(r, file, _)| r == &f.rule_id && file == &f.display_file)
+            {
+                entry.2 += 1;
+            } else {
+                summary.push((f.rule_id.clone(), f.display_file.clone(), 1));
+            }
+        }
+
+        let table = Table {
+            headers: vec![
+                "カテゴリ".to_string(),
+                "ファイル".to_string(),
+                "件数".to_string(),
+            ],
+            rows: summary
+                .iter()
+                .map(|(rule_id, file, count)| {
+                    vec![rule_id.clone(), file.clone(), format!("{count}件")]
+                })
+                .collect(),
+        };
+        write!(out, "{}", table.render("  ")).map_err(write_err)?;
+        writeln!(out).map_err(write_err)?;
+    }
+
+    // === 承認済み ===
     if !approved.is_empty() {
         let mut err = io::stderr().lock();
-        writeln!(err).map_err(write_err)?;
         writeln!(
             err,
-            "approved findings filtered by wrapper: {}",
+            "{dim}承認済み（対応不要）: {}件（policy-approved コメントにより除外）{reset}",
             approved.len()
         )
         .map_err(write_err)?;
@@ -808,18 +1011,43 @@ fn format_human(unsuppressed: &[Finding], approved: &[Finding]) -> Result<(), St
 }
 
 fn format_json(unsuppressed: &[Finding]) -> Result<(), String> {
+    let mut groups: Vec<(String, Vec<&Finding>)> = Vec::new();
+    for f in unsuppressed {
+        let pg = f
+            .metadata
+            .get("policy_group")
+            .cloned()
+            .unwrap_or_default();
+        if let Some(entry) = groups.iter_mut().find(|(g, _)| g == &pg) {
+            entry.1.push(f);
+        } else {
+            groups.push((pg, vec![f]));
+        }
+    }
+
     let mut out = io::stdout().lock();
-    for finding in unsuppressed {
-        let payload = json!({
-            "file": finding.display_file,
-            "line": finding.line0 + 1,
-            "column": finding.column0 + 1,
-            "rule_id": finding.rule_id,
-            "severity": finding.severity,
-            "message": finding.message,
-            "code": finding.snippet(),
+    for (policy_group, findings) in &groups {
+        let items: Vec<serde_json::Value> = findings
+            .iter()
+            .map(|f| {
+                json!({
+                    "file": f.display_file,
+                    "line": f.line0 + 1,
+                    "column": f.column0 + 1,
+                    "rule_id": f.rule_id,
+                    "severity": f.severity,
+                    "message": f.message,
+                    "note": f.note.as_deref().unwrap_or(""),
+                    "code": f.snippet(),
+                })
+            })
+            .collect();
+        let group = json!({
+            "policy_group": policy_group,
+            "count": items.len(),
+            "findings": items,
         });
-        writeln!(out, "{}", payload).map_err(write_err)?;
+        writeln!(out, "{}", group).map_err(write_err)?;
     }
     Ok(())
 }

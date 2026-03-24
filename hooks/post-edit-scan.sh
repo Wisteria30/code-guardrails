@@ -78,7 +78,7 @@ fi
   echo "=== CODE GUARDRAILS: Policy Violations Found ==="
   echo ""
   if command -v jq &>/dev/null; then
-    echo "$OUTPUT" | jq -r '"\(.file):\(.line):\(.column) [\(.rule_id)] \(.message)" + if .code != "" then "\n    code: \(.code)" else "" end' 2>/dev/null || echo "$OUTPUT"
+    echo "$OUTPUT" | jq -r '"\(.file):\(.line):\(.column) [\(.rule_id)] \(.message)" + if .note != "" then "\n    note: \(.note)" else "" end + if .code != "" then "\n    code: \(.code)" else "" end' 2>/dev/null || echo "$OUTPUT"
   elif command -v python3 &>/dev/null; then
     echo "$OUTPUT" | python3 -c "
 import sys, json
@@ -89,6 +89,8 @@ for line in sys.stdin:
     try:
         f = json.loads(line)
         print(f\"  {f['file']}:{f['line']}:{f['column']} [{f['rule_id']}] {f['message']}\")
+        if f.get('note'):
+            print(f\"    note: {f['note']}\")
         if f.get('code'):
             print(f\"    code: {f['code'][:200]}\")
     except (json.JSONDecodeError, KeyError):
