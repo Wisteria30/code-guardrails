@@ -7,25 +7,12 @@ YELLOW='\033[93m'
 RESET='\033[0m'
 
 ISSUES=0
-
-check_tool() {
-  local tool="$1"
-  local install_hint="$2"
-  if command -v "$tool" &>/dev/null; then
-    echo -e "${GREEN}OK${RESET} $tool ($(command -v "$tool"))"
-    return 0
-  else
-    echo -e "${RED}MISSING${RESET} $tool"
-    echo "  Install: $install_hint"
-    return 1
-  fi
-}
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 check_version() {
   local tool="$1"
   local current="$2"
   local minimum="$3"
-  # Compare version strings (major.minor only)
   local cur_major cur_minor min_major min_minor
   cur_major=$(echo "$current" | cut -d. -f1)
   cur_minor=$(echo "$current" | cut -d. -f2)
@@ -41,32 +28,75 @@ check_version() {
   fi
 }
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+install_tool() {
+  local tool="$1"
+  local brew_pkg="$2"
+  local npm_pkg="$3"
+
+  echo -e "${YELLOW}MISSING${RESET} $tool — installing..."
+
+  # Try brew first (macOS/Linux)
+  if command -v brew &>/dev/null; then
+    brew install "$brew_pkg" 2>/dev/null && echo -e "  ${GREEN}installed via brew${RESET}" && return 0
+  fi
+
+  # Try npm
+  if command -v npm &>/dev/null; then
+    npm install -g "$npm_pkg" 2>/dev/null && echo -e "  ${GREEN}installed via npm${RESET}" && return 0
+  fi
+
+  # Try cargo
+  if command -v cargo &>/dev/null; then
+    cargo install "$brew_pkg" --locked 2>/dev/null && echo -e "  ${GREEN}installed via cargo${RESET}" && return 0
+  fi
+
+  echo -e "  ${RED}failed${RESET} — install manually: brew install $brew_pkg"
+  return 1
+}
+
+ensure_tool() {
+  local cmd="$1"
+  local brew_pkg="$2"
+  local npm_pkg="$3"
+  local min_version="$4"
+  local version_cmd="$5"
+
+  if command -v "$cmd" &>/dev/null; then
+    echo -e "${GREEN}OK${RESET} $cmd ($(command -v "$cmd"))"
+    local ver
+    ver=$(eval "$version_cmd" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)
+    check_version "$cmd" "$ver" "$min_version" || ISSUES=1
+  else
+    install_tool "$cmd" "$brew_pkg" "$npm_pkg" || ISSUES=1
+    # Re-check after install
+    if command -v "$cmd" &>/dev/null; then
+      echo -e "${GREEN}OK${RESET} $cmd ($(command -v "$cmd"))"
+      local ver
+      ver=$(eval "$version_cmd" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)
+      check_version "$cmd" "$ver" "$min_version" || ISSUES=1
+    fi
+  fi
+}
 
 echo "code-guardrails setup"
 echo "====================="
 echo ""
 
 # --- Python 3.12+ ---
-check_tool "python3" "https://www.python.org/downloads/" || ISSUES=1
 if command -v python3 &>/dev/null; then
+  echo -e "${GREEN}OK${RESET} python3 ($(command -v python3))"
   PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
   check_version "python3" "$PY_VER" "3.12" || ISSUES=1
+else
+  echo -e "${RED}MISSING${RESET} python3 — install from https://www.python.org/downloads/"
+  ISSUES=1
 fi
 
 # --- ast-grep 0.14+ ---
-check_tool "ast-grep" "brew install ast-grep  OR  cargo install ast-grep --locked" || ISSUES=1
-if command -v ast-grep &>/dev/null; then
-  AG_VER=$(ast-grep --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)
-  check_version "ast-grep" "$AG_VER" "0.14" || ISSUES=1
-fi
+ensure_tool "ast-grep" "ast-grep" "@ast-grep/cli" "0.14" "ast-grep --version"
 
 # --- ripgrep 14.0+ ---
-check_tool "rg" "brew install ripgrep  OR  cargo install ripgrep" || ISSUES=1
-if command -v rg &>/dev/null; then
-  RG_VER=$(rg --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)
-  check_version "ripgrep" "$RG_VER" "14.0" || ISSUES=1
-fi
+ensure_tool "rg" "ripgrep" "ripgrep" "14.0" "rg --version"
 
 # --- PyYAML 6.0+ ---
 echo ""
