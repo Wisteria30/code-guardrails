@@ -8,21 +8,39 @@ Claude Code plugin that detects test doubles and unapproved fallbacks in product
 
 ## Install — 30 seconds
 
+### Prerequisites
+
+```bash
+brew install ast-grep ripgrep
+```
+
 ### Option A: Marketplace (recommended)
 
-Open Claude Code and paste this. Claude does the rest.
+Run these in Claude Code:
 
-> Install code-guardrails plugin: run **`/plugin marketplace add Wisteria30/code-guardrails`** then **`/plugin install code-guardrails@code-guardrails-marketplace`**. If ast-grep or ripgrep is missing, install them with `brew install ast-grep ripgrep`. Then restart Claude Code so the plugin loads. After restart, confirm the plugin is active by running `/scan`.
+```
+/plugin marketplace add Wisteria30/code-guardrails
+/plugin install code-guardrails@code-guardrails-marketplace
+```
+
+Restart Claude Code. Confirm with `/scan`.
 
 ### Option B: Git clone
 
-> Install code-guardrails: run **`git clone https://github.com/Wisteria30/code-guardrails.git ~/.claude/plugins/code-guardrails && ~/.claude/plugins/code-guardrails/setup`** — if ast-grep or ripgrep is missing, install them following the setup output. Then restart Claude Code so the plugin loads.
+```bash
+git clone https://github.com/Wisteria30/code-guardrails.git ~/.claude/plugins/code-guardrails
+~/.claude/plugins/code-guardrails/setup
+```
+
+Restart Claude Code.
 
 ### Add to your repo so teammates get it (optional)
 
-> Add code-guardrails to this project: run **`cp -Rf ~/.claude/plugins/code-guardrails .claude/plugins/code-guardrails && rm -rf .claude/plugins/code-guardrails/.git && .claude/plugins/code-guardrails/setup`** then commit the `.claude/plugins/code-guardrails` directory so teammates get it on `git clone`.
-
-Real files get committed to your repo (not a submodule), so `git clone` just works. Everything lives inside `.claude/plugins/`. Nothing touches your PATH or runs in the background.
+```bash
+cp -Rf ~/.claude/plugins/code-guardrails .claude/plugins/code-guardrails
+rm -rf .claude/plugins/code-guardrails/.git
+git add .claude/plugins/code-guardrails && git commit -m "chore: add code-guardrails plugin"
+```
 
 ## What it does
 

@@ -2,5 +2,7 @@
   "name": "code-guardrails",
   "version": "0.1.0",
   "description": "Detect and block test doubles and unapproved fallbacks in production code. AI coding tools silently introduce mock/stub/fake objects and fallback behaviors — this plugin catches them.",
-  "author": "Wisteria30"
+  "author": {
+    "name": "Wisteria30"
+  }
 }

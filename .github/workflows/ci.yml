@@ -37,9 +37,30 @@ jobs:
           python-version: "3.12"
       - name: Install ast-grep
         run: |
-          curl -fsSL https://raw.githubusercontent.com/nicolo-ribaudo/ast-grep-setup-action/main/setup.sh | bash -s -- --version 0.36.2
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          npm install -g @ast-grep/cli
       - name: Install ripgrep
         run: sudo apt-get install -y ripgrep
       - run: pip install PyYAML pytest pytest-cov
       - run: pytest tests/ -v --tb=short
+
+  validate-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ast-grep
+        run: npm install -g @ast-grep/cli
+      - name: Validate ast-grep config
+        run: ast-grep scan --test-dir fixtures .
+
+  validate-plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate plugin manifest
+        run: python3 -c "import json; json.load(open('.claude-plugin/plugin.json'))"
+      - name: Validate marketplace manifest
+        run: python3 -c "import json; json.load(open('.claude-plugin/marketplace.json'))"
+      - name: Check hook script is executable
+        run: test -x hooks/post-edit-scan.sh
+      - name: Check setup script is executable
+        run: test -x setup
