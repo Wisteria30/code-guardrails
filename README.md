@@ -8,13 +8,17 @@ Claude Code plugin that detects test doubles and unapproved fallbacks in product
 
 ## Install — 30 seconds
 
-### Step 1: Install on your machine
+### Option A: Marketplace (recommended)
 
 Open Claude Code and paste this. Claude does the rest.
 
-> Install code-guardrails: run **`git clone https://github.com/Wisteria30/code-guardrails.git ~/.claude/plugins/code-guardrails && ~/.claude/plugins/code-guardrails/setup`** — if ast-grep or ripgrep is missing, install them following the setup output. Then restart Claude Code so the plugin loads. After restart, confirm the plugin is active by running `/scan` and checking that it reports results.
+> Install code-guardrails plugin: run **`/plugin marketplace add Wisteria30/code-guardrails`** then **`/plugin install code-guardrails@code-guardrails-marketplace`**. If ast-grep or ripgrep is missing, install them with `brew install ast-grep ripgrep`. Then restart Claude Code so the plugin loads. After restart, confirm the plugin is active by running `/scan`.
 
-### Step 2: Add to your repo so teammates get it (optional)
+### Option B: Git clone
+
+> Install code-guardrails: run **`git clone https://github.com/Wisteria30/code-guardrails.git ~/.claude/plugins/code-guardrails && ~/.claude/plugins/code-guardrails/setup`** — if ast-grep or ripgrep is missing, install them following the setup output. Then restart Claude Code so the plugin loads.
+
+### Add to your repo so teammates get it (optional)
 
 > Add code-guardrails to this project: run **`cp -Rf ~/.claude/plugins/code-guardrails .claude/plugins/code-guardrails && rm -rf .claude/plugins/code-guardrails/.git && .claude/plugins/code-guardrails/setup`** then commit the `.claude/plugins/code-guardrails` directory so teammates get it on `git clone`.
 
