@@ -1,5 +1,5 @@
 // ?? in conditions/returns should NOT trigger (assignment-only rule)
-if (value ?? fallback) {
+if (value ?? alternative) {
   process();
 }
 

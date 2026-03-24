@@ -1,0 +1,24 @@
+id: py-no-fallback-identifier
+language: Python
+severity: error
+files:
+  - '**/*.py'
+ignores:
+  - '**/test/**'
+  - '**/tests/**'
+  - '**/*_test.py'
+  - '**/test_*.py'
+  - '**/conftest.py'
+  - '**/generated/**'
+  - '**/openapi/**'
+  - '**/swagger/**'
+  - '**/codegen/**'
+  - '**/__generated__/**'
+rule:
+  kind: identifier
+  regex: '(?i)fallback'
+message: 'Identifier contains "fallback" — likely an unapproved fallback value or mechanism'
+note: 'Production code should not contain fallback naming. This usually means AI introduced a hardcoded default or degraded code path. Use explicit configuration or fail loudly instead.'
+metadata:
+  policy_group: fallback
+  approval_mode: adjacent_policy_comment

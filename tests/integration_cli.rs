@@ -106,18 +106,20 @@ fn collect_fixtures(expect: &str) -> Vec<(PathBuf, String)> {
     items
 }
 
-fn run_ast_grep(filepath: &Path) -> Vec<serde_json::Value> {
-    let output = Command::new("ast-grep")
-        .args(["scan", "--json=stream"])
-        .arg(filepath)
-        .current_dir(project_root())
-        .output()
-        .expect("failed to run ast-grep");
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .filter_map(|line| serde_json::from_str(line).ok())
-        .collect()
+fn run_scan_file(filepath: &Path) -> Vec<serde_json::Value> {
+    let output = run_engine(&["scan-file", "--file", filepath.to_str().unwrap()]);
+    let mut all_findings = Vec::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+            if let Some(findings) = v.get("findings").and_then(|f| f.as_array()) {
+                all_findings.extend(findings.iter().cloned());
+            }
+        }
+    }
+    all_findings
 }
 
 #[test]
@@ -234,7 +236,7 @@ fn fixture_should_fail_has_violations() {
     assert!(!fixtures.is_empty(), "no should_fail fixtures found");
     let mut failures = Vec::new();
     for (path, test_id) in &fixtures {
-        let findings = run_ast_grep(path);
+        let findings = run_scan_file(path);
         if findings.is_empty() {
             failures.push(format!("{test_id}: expected violations but got 0"));
         }
@@ -252,11 +254,11 @@ fn fixture_should_pass_has_no_violations() {
     assert!(!fixtures.is_empty(), "no should_pass fixtures found");
     let mut failures = Vec::new();
     for (path, test_id) in &fixtures {
-        let findings = run_ast_grep(path);
+        let findings = run_scan_file(path);
         if !findings.is_empty() {
             let rule_ids: Vec<String> = findings
                 .iter()
-                .filter_map(|f| f.get("ruleId").and_then(|v| v.as_str()).map(String::from))
+                .filter_map(|f| f.get("rule_id").and_then(|v| v.as_str()).map(String::from))
                 .collect();
             failures.push(format!(
                 "{test_id}: expected 0 violations, got {}: {}",

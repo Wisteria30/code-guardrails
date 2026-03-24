@@ -50,13 +50,20 @@ if [ "$EXIT_CODE" -eq 0 ] || [ -z "$OUTPUT" ]; then
   exit 0
 fi
 
-# Violations found — output JSON to stderr (exit 2 feeds stderr to Claude)
-{
-  echo "=== CODE GUARDRAILS: Policy Violations Found ==="
-  echo "$OUTPUT"
-  echo "Fix these violations before proceeding. For intentional fallbacks, add:"
-  echo "  # policy-approved: REQ-xxx <reason>"
-  echo "=== END CODE GUARDRAILS ==="
-} >&2
+# Violations found — output structured JSON to stdout with decision:block
+# Claude Code parses stdout JSON on exit 0; exit 2 only shows plain stderr text
+REASON="CODE GUARDRAILS: Policy violations found. Fix these violations before proceeding. For intentional fallbacks, add: # policy-approved: REQ-xxx <reason>"
 
-exit 2
+jq -n \
+  --arg reason "$REASON" \
+  --arg context "$OUTPUT" \
+  '{
+    decision: "block",
+    reason: $reason,
+    hookSpecificOutput: {
+      hookEventName: "PostToolUse",
+      additionalContext: $context
+    }
+  }'
+
+exit 0

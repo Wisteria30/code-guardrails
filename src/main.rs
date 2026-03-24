@@ -23,13 +23,20 @@ const DEFAULT_TEST_GLOBS: &[&str] = &[
     "**/__tests__/**",
 ];
 const BATCH_SIZE: usize = 128;
-const RG_CANDIDATE_PATTERN: &str = r"mock|stub|fake|unittest\.mock|= .* or |\?\?|\|\||except.*pass|catch|suppress|getattr\(|getenv\(|os\.environ\.get\(|\.get\(|next\(";
+const SUSPICIOUS_KEYWORDS: &str = "mock|stub|fake|fallback";
+const RG_CANDIDATE_PATTERN: &str = r"mock|stub|fake|fallback|unittest\.mock|= .* or |\?\?|\|\||except.*pass|catch|suppress|getattr\(|getenv\(|os\.environ\.get\(|\.get\(|next\(";
 
 fn approval_regex() -> &'static Regex {
     static APPROVAL_RE: OnceLock<Regex> = OnceLock::new();
     APPROVAL_RE.get_or_init(|| {
         Regex::new(r"(?i)policy-approved:\s*(REQ|ADR|SPEC)-[A-Za-z0-9._-]+").unwrap()
     })
+}
+
+fn keyword_comment_regex() -> &'static Regex {
+    static KEYWORD_COMMENT_RE: OnceLock<Regex> = OnceLock::new();
+    KEYWORD_COMMENT_RE
+        .get_or_init(|| Regex::new(&format!(r"(?i)\b({SUSPICIOUS_KEYWORDS})\b")).unwrap())
 }
 
 fn python_or_regex() -> &'static Regex {
@@ -428,20 +435,33 @@ fn scan_file(
 
     let content = fs::read_to_string(&canonical_file)
         .map_err(|err| format!("failed to read {}: {err}", canonical_file.display()))?;
-    let selected_ids = detect_rule_ids(&canonical_file, &content);
-    if selected_ids.is_empty() {
-        return Ok(Vec::new());
+
+    let mut findings = Vec::new();
+
+    // rg-based keyword-in-comment detection
+    // Prefilter: skip rg spawn when no keywords in file (~4ms savings on clean files)
+    if keyword_comment_regex().is_match(&content) {
+        findings.extend(ripgrep_keyword_comments(
+            &[canonical_file.clone()],
+            &scan_root,
+        )?);
     }
 
-    let rule_paths = catalog.rule_paths(selected_ids.iter().map(String::as_str));
-    let inline_rules = read_inline_rules(&rule_paths)?;
-    run_ast_grep(
-        common,
-        catalog,
-        &scan_root,
-        &[canonical_file],
-        &inline_rules,
-    )
+    // ast-grep-based detection
+    let selected_ids = detect_rule_ids(&canonical_file, &content);
+    if !selected_ids.is_empty() {
+        let rule_paths = catalog.rule_paths(selected_ids.iter().map(String::as_str));
+        let inline_rules = read_inline_rules(&rule_paths)?;
+        findings.extend(run_ast_grep(
+            common,
+            catalog,
+            &scan_root,
+            &[canonical_file],
+            &inline_rules,
+        )?);
+    }
+
+    Ok(findings)
 }
 
 fn scan_tree(
@@ -454,11 +474,14 @@ fn scan_tree(
         .map_err(|err| format!("failed to resolve {}: {err}", root.display()))?;
     let test_matcher = build_patterns(&common.test_globs)?;
     let mut groups: HashMap<Vec<String>, Vec<PathBuf>> = HashMap::new();
+    let mut all_source_files: Vec<PathBuf> = Vec::new();
 
     for path in ripgrep_candidate_files(&scan_root)? {
         if !is_supported_source(&path) || matches_test_globs(&test_matcher, &path, &scan_root) {
             continue;
         }
+
+        all_source_files.push(path.clone());
 
         let content = fs::read_to_string(&path)
             .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
@@ -466,13 +489,15 @@ fn scan_tree(
         if selected_ids.is_empty() {
             continue;
         }
-        groups
-            .entry(selected_ids)
-            .or_default()
-            .push(path.canonicalize().unwrap_or(path));
+        groups.entry(selected_ids).or_default().push(path);
     }
 
     let mut findings = Vec::new();
+
+    // rg-based keyword-in-comment detection (single rg call for all files)
+    findings.extend(ripgrep_keyword_comments(&all_source_files, &scan_root)?);
+
+    // ast-grep-based detection
     for (rule_ids, files) in groups {
         let rule_paths = catalog.rule_paths(rule_ids.iter().map(String::as_str));
         let inline_rules = read_inline_rules(&rule_paths)?;
@@ -557,6 +582,9 @@ fn detect_rule_ids(path: &Path, content: &str) -> Vec<String> {
             if contains_any(&lower, &["mock", "stub", "fake"]) {
                 ids.insert("py-no-test-double-identifier".to_string());
             }
+            if lower.contains("fallback") {
+                ids.insert("py-no-fallback-identifier".to_string());
+            }
             if lower.contains("unittest.mock") {
                 ids.insert("py-no-test-double-unittest-mock".to_string());
             }
@@ -585,6 +613,9 @@ fn detect_rule_ids(path: &Path, content: &str) -> Vec<String> {
         "ts" | "cts" | "mts" => {
             if contains_any(&lower, &["mock", "stub", "fake"]) {
                 ids.insert("ts-no-test-double-identifier".to_string());
+            }
+            if lower.contains("fallback") {
+                ids.insert("ts-no-fallback-identifier".to_string());
             }
             if lower.contains("??=") {
                 ids.insert("ts-no-fallback-nullish-assign".to_string());
@@ -706,10 +737,7 @@ fn to_finding(
     };
     let canonical_file = joined.canonicalize().unwrap_or(joined);
 
-    let display_file = canonical_file
-        .strip_prefix(scan_root)
-        .map(|path| path.to_string_lossy().to_string())
-        .unwrap_or_else(|_| raw.file_path.clone());
+    let display_file = resolve_display_path(&canonical_file, scan_root, &raw.file_path);
 
     Finding {
         display_file,
@@ -720,6 +748,110 @@ fn to_finding(
         text: raw.text.unwrap_or_default(),
         metadata,
     }
+}
+
+fn rg_comment_pattern(comment_prefix: &str) -> String {
+    format!(r"^\s*{comment_prefix}.*\b({SUSPICIOUS_KEYWORDS})\b")
+}
+
+fn ripgrep_keyword_comments(targets: &[PathBuf], scan_root: &Path) -> Result<Vec<Finding>, String> {
+    if targets.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut py_targets = Vec::new();
+    let mut ts_targets = Vec::new();
+    for t in targets {
+        match t.extension().and_then(|e| e.to_str()) {
+            Some("py") => py_targets.push(t.as_path()),
+            Some("ts" | "cts" | "mts") => ts_targets.push(t.as_path()),
+            _ => {}
+        }
+    }
+
+    let py_pattern = rg_comment_pattern("#");
+    let ts_pattern = rg_comment_pattern("//");
+
+    let mut findings = Vec::new();
+    for (targets, pattern, rule_id) in [
+        (&py_targets, py_pattern.as_str(), "py-no-keyword-comment"),
+        (&ts_targets, ts_pattern.as_str(), "ts-no-keyword-comment"),
+    ] {
+        if targets.is_empty() {
+            continue;
+        }
+        let mut cmd = Command::new("rg");
+        cmd.args(["--json", "-i", "-e", pattern]);
+        for t in targets {
+            cmd.arg(t);
+        }
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+
+        let mut child = cmd
+            .spawn()
+            .map_err(|err| format!("failed to execute ripgrep for keyword comments: {err}"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or("failed to capture rg stdout".to_string())?;
+        let reader = BufReader::new(stdout);
+
+        for line in reader.lines() {
+            let line = line.map_err(|err| format!("failed to read rg output: {err}"))?;
+            if let Some(f) = parse_rg_json_match(&line, rule_id, scan_root) {
+                findings.push(f);
+            }
+        }
+
+        let output = child
+            .wait_with_output()
+            .map_err(|err| format!("failed to wait for rg: {err}"))?;
+        check_exit_ok(&output, "ripgrep keyword comment scan failed")?;
+    }
+    Ok(findings)
+}
+
+fn resolve_display_path(canonical: &Path, scan_root: &Path, raw_fallback: &str) -> String {
+    canonical
+        .strip_prefix(scan_root)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| raw_fallback.to_string())
+}
+
+fn parse_rg_json_match(json_line: &str, rule_id: &str, scan_root: &Path) -> Option<Finding> {
+    let v: serde_json::Value = serde_json::from_str(json_line).ok()?;
+    if v["type"].as_str()? != "match" {
+        return None;
+    }
+    let data = &v["data"];
+    let file_path = data["path"]["text"].as_str()?;
+    let line_number = data["line_number"].as_u64()? as usize;
+    let text = data["lines"]["text"].as_str().unwrap_or_default().trim();
+
+    let keyword = keyword_comment_regex().find(text)?.as_str().to_lowercase();
+
+    let canonical = Path::new(file_path).canonicalize().ok()?;
+    let display = resolve_display_path(&canonical, scan_root, file_path);
+
+    Some(Finding {
+        display_file: display,
+        canonical_file: canonical,
+        line0: line_number.saturating_sub(1),
+        rule_id: rule_id.to_string(),
+        message: format!(
+            "Comment contains suspicious keyword \"{}\" — may indicate AI-introduced placeholder",
+            keyword
+        ),
+        text: text.to_string(),
+        metadata: HashMap::from([
+            ("policy_group".to_string(), "keyword".to_string()),
+            (
+                "approval_mode".to_string(),
+                APPROVAL_MODE_ADJACENT.to_string(),
+            ),
+        ]),
+    })
 }
 
 fn is_approved(finding: &Finding, cache: &mut HashMap<PathBuf, Vec<String>>) -> bool {
