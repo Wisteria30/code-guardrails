@@ -11,46 +11,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          python-version: "3.12"
-      - run: pip install ruff
-      - run: ruff check .
-      - run: ruff format --check .
-
-  typecheck:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install mypy types-PyYAML PyYAML
-      - run: mypy check_policy.py
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy -- -D warnings
 
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
       - name: Install ast-grep
-        run: |
-          npm install -g @ast-grep/cli
+        run: npm install -g @ast-grep/cli
       - name: Install ripgrep
         run: sudo apt-get install -y ripgrep
-      - run: pip install PyYAML pytest pytest-cov
-      - run: pytest tests/ -v --tb=short
+      - run: cargo test --all-targets
 
   validate-plugin:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Validate plugin manifest
-        run: python3 -c "import json; json.load(open('.claude-plugin/plugin.json'))"
+        run: jq empty .claude-plugin/plugin.json
       - name: Validate marketplace manifest
-        run: python3 -c "import json; json.load(open('.claude-plugin/marketplace.json'))"
+        run: jq empty .claude-plugin/marketplace.json
       - name: Check hook script is executable
         run: test -x hooks/post-edit-scan.sh
       - name: Check setup script is executable

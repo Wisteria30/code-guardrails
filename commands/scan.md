@@ -7,7 +7,14 @@ Run the code-guardrails policy scanner on the **user's current project** (not th
 
 Execute this command:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/check_policy.py" --config-dir "${CLAUDE_PLUGIN_ROOT}" "$(pwd)" --format human
+if [ -x "${CLAUDE_PLUGIN_ROOT}/bin/code-guardrails-engine" ]; then
+  "${CLAUDE_PLUGIN_ROOT}/bin/code-guardrails-engine" scan-tree --root "$(pwd)" --config-dir "${CLAUDE_PLUGIN_ROOT}" --format human
+elif [ -f "${CLAUDE_PLUGIN_ROOT}/Cargo.toml" ] && command -v cargo >/dev/null 2>&1; then
+  cargo run --quiet --release --manifest-path "${CLAUDE_PLUGIN_ROOT}/Cargo.toml" --bin code-guardrails-engine -- scan-tree --root "$(pwd)" --config-dir "${CLAUDE_PLUGIN_ROOT}" --format human
+else
+  echo "code-guardrails-engine is not built. Run ${CLAUDE_PLUGIN_ROOT}/setup first." >&2
+  exit 2
+fi
 ```
 
 `--config-dir` points to the plugin directory (where sgconfig.yml and rules/ live).

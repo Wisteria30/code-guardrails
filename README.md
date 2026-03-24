@@ -4,16 +4,17 @@
 
 AI tools generate working code fast. But behind the scenes, they swallow exceptions with `pass`, leave `mock` objects in production, and paper over failures with `?? "default"`. Miss it in review, and it ships.
 
-code-guardrails parses every file save with ast-grep and warns Claude immediately when these patterns appear.
+code-guardrails parses every file save with a Rust engine plus ast-grep and warns Claude immediately when these patterns appear.
 
 ---
 
 ## Install
 
-**Prerequisites:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [ast-grep](https://ast-grep.github.io/) 0.14+, [ripgrep](https://github.com/BurntSushi/ripgrep) 14.0+
+**Prerequisites:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [ast-grep](https://ast-grep.github.io/) 0.14+, [ripgrep](https://github.com/BurntSushi/ripgrep) 14.0+, Rust 1.77+
 
 ```bash
 brew install ast-grep ripgrep
+curl https://sh.rustup.rs -sSf | sh
 ```
 
 ### Option A: Marketplace (recommended)
@@ -158,6 +159,7 @@ Accepted prefixes: `REQ-`, `ADR-`, `SPEC-` followed by an identifier.
 | **`/scan` command** | Full project scan on demand |
 
 17 rules (9 Python + 8 TypeScript), validated against 34+ test fixtures.
+The hot path uses a Rust engine, and full-tree scans use `ripgrep` to prefilter candidate files before invoking ast-grep.
 Test paths (`**/test/**`, `**/tests/**`, `**/*_test.py`, `*.test.ts`, etc.) are excluded from all rules.
 
 ---
@@ -197,13 +199,16 @@ Test paths (`**/test/**`, `**/tests/**`, `**/*_test.py`, `*.test.ts`, etc.) are 
 
 ```bash
 # Full project scan
-python check_policy.py .
+./bin/code-guardrails-engine scan-tree --root . --config-dir . --format human
 
 # Single file
-python check_policy.py --changed-only path/to/file.py
+./bin/code-guardrails-engine scan-file --file path/to/file.py --config-dir . --format human
 
 # JSON output (CI / hooks)
-python check_policy.py --changed-only file.py --format json
+./bin/code-guardrails-engine scan-file --file file.py --config-dir . --format json
+
+# Dev path without install copy
+cargo run --quiet --release --bin code-guardrails-engine -- scan-tree --root . --config-dir . --format human
 ```
 
 ---
@@ -211,9 +216,12 @@ python check_policy.py --changed-only file.py --format json
 ## Development
 
 ```bash
-python test_rules.py        # Rule validation tests
-python test_check_policy.py  # CLI tests
+pytest
+cargo test
+python scripts/bench.py --iterations 10
 ```
+
+`pytest` and `scripts/bench.py` are development helpers and require Python 3.12+.
 
 ## License
 

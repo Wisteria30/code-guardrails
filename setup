@@ -82,32 +82,11 @@ echo "code-guardrails setup"
 echo "====================="
 echo ""
 
-# --- Python 3.12+ ---
-if command -v python3 &>/dev/null; then
-  echo -e "${GREEN}OK${RESET} python3 ($(command -v python3))"
-  PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-  check_version "python3" "$PY_VER" "3.12" || ISSUES=1
-else
-  echo -e "${RED}MISSING${RESET} python3 — install from https://www.python.org/downloads/"
-  ISSUES=1
-fi
-
 # --- ast-grep 0.14+ ---
 ensure_tool "ast-grep" "ast-grep" "@ast-grep/cli" "0.14" "ast-grep --version"
 
 # --- ripgrep 14.0+ ---
 ensure_tool "rg" "ripgrep" "ripgrep" "14.0" "rg --version"
-
-# --- PyYAML 6.0+ ---
-echo ""
-if python3 -c "import yaml" 2>/dev/null; then
-  echo -e "${GREEN}OK${RESET} PyYAML"
-  YAML_VER=$(python3 -c "import yaml; print(yaml.__version__)" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)
-  check_version "PyYAML" "$YAML_VER" "6.0" || ISSUES=1
-else
-  echo -e "${YELLOW}MISSING${RESET} PyYAML — installing..."
-  python3 -m pip install --quiet "PyYAML>=6.0" && echo -e "  ${GREEN}installed${RESET}" || { echo -e "  ${RED}failed${RESET}"; ISSUES=1; }
-fi
 
 echo ""
 if [ "$ISSUES" -ne 0 ]; then
@@ -115,8 +94,18 @@ if [ "$ISSUES" -ne 0 ]; then
   exit 1
 fi
 
-# --- Pre-compile .pyc for fast first run ---
-python3 -m compileall -q "$SCRIPT_DIR/check_policy.py" 2>/dev/null && \
-  echo -e "${GREEN}OK${RESET} bytecode pre-compiled" || true
+# --- Rust toolchain (optional — engine built on first use if missing) ---
+if command -v cargo &>/dev/null && command -v rustc &>/dev/null; then
+  echo -e "${GREEN}OK${RESET} cargo ($(command -v cargo))"
+  mkdir -p "$SCRIPT_DIR/bin"
+  cargo build --manifest-path "$SCRIPT_DIR/Cargo.toml" --release && \
+    cp "$SCRIPT_DIR/target/release/code-guardrails-engine" "$SCRIPT_DIR/bin/code-guardrails-engine" && \
+    echo -e "${GREEN}OK${RESET} Rust engine built" || \
+    echo -e "${YELLOW}WARN${RESET} Rust build failed — engine will be built on first use"
+else
+  echo -e "${YELLOW}SKIP${RESET} Rust toolchain not found — engine will be built on first use"
+  echo -e "  When you edit a file, Claude Code will prompt you to install Rust via rustup."
+fi
 
-echo -e "${GREEN}All dependencies OK. code-guardrails is ready.${RESET}"
+echo ""
+echo -e "${GREEN}Setup complete. code-guardrails is ready.${RESET}"
