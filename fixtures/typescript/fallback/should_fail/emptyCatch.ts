@@ -1,0 +1,4 @@
+try {
+  riskyOperation();
+} catch (e) {
+}

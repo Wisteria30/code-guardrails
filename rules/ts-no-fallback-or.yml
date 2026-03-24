@@ -5,6 +5,12 @@ files:
   - '**/*.ts'
   - '**/*.cts'
   - '**/*.mts'
+ignores:
+  - '**/test/**'
+  - '**/tests/**'
+  - '**/*.test.ts'
+  - '**/*.spec.ts'
+  - '**/__tests__/**'
 rule:
   pattern: $A || $B
 message: 'Potential fallback detected via `||`'
