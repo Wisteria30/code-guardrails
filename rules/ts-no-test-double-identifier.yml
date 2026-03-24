@@ -1,0 +1,21 @@
+id: ts-no-test-double-identifier
+language: TypeScript
+severity: error
+files:
+  - '**/*.ts'
+  - '**/*.cts'
+  - '**/*.mts'
+ignores:
+  - '**/test/**'
+  - '**/tests/**'
+  - '**/*.test.ts'
+  - '**/*.spec.ts'
+  - '**/__tests__/**'
+rule:
+  kind: identifier
+  regex: '(?i)(mock|stub|fake)'
+message: 'Non-test TypeScript code must not contain mock/stub/fake identifiers'
+note: 'Production code must not contain mock/stub/fake usage or naming. Keep test doubles inside tests and verify production behavior with tests, not placeholders.'
+metadata:
+  policy_group: test-double
+  approval_mode: none

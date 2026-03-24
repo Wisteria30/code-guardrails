@@ -1,0 +1,24 @@
+id: ts-no-promise-catch-default
+language: TypeScript
+severity: error
+files:
+  - '**/*.ts'
+  - '**/*.cts'
+  - '**/*.mts'
+rule:
+  any:
+    - pattern: $PROM.catch(($ERR) => $DEFAULT)
+    - pattern: $PROM.catch(() => $DEFAULT)
+    - pattern: |
+        $PROM.catch(($ERR) => {
+          return $DEFAULT
+        })
+    - pattern: |
+        $PROM.catch(() => {
+          return $DEFAULT
+        })
+message: 'Potential fallback detected via `Promise.catch(... => default)`'
+note: 'Fallback behavior is forbidden unless explicitly approved in requirements. If this one is intentional, add an adjacent `policy-approved: REQ-...` comment.'
+metadata:
+  policy_group: fallback
+  approval_mode: adjacent_policy_comment

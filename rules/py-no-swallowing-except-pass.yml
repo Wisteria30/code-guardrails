@@ -1,0 +1,27 @@
+id: py-no-swallowing-except-pass
+language: Python
+severity: error
+files:
+  - '**/*.py'
+rule:
+  any:
+    - pattern: |
+        try:
+          $$$BODY
+        except:
+          pass
+    - pattern: |
+        try:
+          $$$BODY
+        except $ERR:
+          pass
+    - pattern: |
+        try:
+          $$$BODY
+        except $ERR as $NAME:
+          pass
+message: 'Exception swallowing detected via `except ...: pass`'
+note: 'Fallback behavior is forbidden unless explicitly approved in requirements. If this one is intentional, add an adjacent `policy-approved: REQ-...` comment.'
+metadata:
+  policy_group: fallback
+  approval_mode: adjacent_policy_comment

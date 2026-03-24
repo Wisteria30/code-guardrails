@@ -1,0 +1,24 @@
+id: ts-no-empty-catch
+language: TypeScript
+severity: error
+files:
+  - '**/*.ts'
+  - '**/*.cts'
+  - '**/*.mts'
+rule:
+  any:
+    - pattern: |
+        try {
+          $$$BODY
+        } catch ($ERR) {
+        }
+    - pattern: |
+        try {
+          $$$BODY
+        } catch {
+        }
+message: 'Exception swallowing detected via empty `catch`'
+note: 'Fallback behavior is forbidden unless explicitly approved in requirements. If this one is intentional, add an adjacent `policy-approved: REQ-...` comment.'
+metadata:
+  policy_group: fallback
+  approval_mode: adjacent_policy_comment

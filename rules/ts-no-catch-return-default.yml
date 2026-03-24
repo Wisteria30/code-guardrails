@@ -1,0 +1,26 @@
+id: ts-no-catch-return-default
+language: TypeScript
+severity: error
+files:
+  - '**/*.ts'
+  - '**/*.cts'
+  - '**/*.mts'
+rule:
+  any:
+    - pattern: |
+        try {
+          $$$BODY
+        } catch ($ERR) {
+          return $DEFAULT
+        }
+    - pattern: |
+        try {
+          $$$BODY
+        } catch {
+          return $DEFAULT
+        }
+message: 'Potential fallback detected via `catch` returning a default'
+note: 'Fallback behavior is forbidden unless explicitly approved in requirements. If this one is intentional, add an adjacent `policy-approved: REQ-...` comment.'
+metadata:
+  policy_group: fallback
+  approval_mode: adjacent_policy_comment

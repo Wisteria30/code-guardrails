@@ -1,0 +1,12 @@
+id: py-no-fallback-bool-or
+language: Python
+severity: error
+files:
+  - '**/*.py'
+rule:
+  pattern: $A or $B
+message: 'Potential fallback detected via Python `or`'
+note: 'Fallback behavior is forbidden unless explicitly approved in requirements. If this one is intentional, add an adjacent `policy-approved: REQ-...` comment.'
+metadata:
+  policy_group: fallback
+  approval_mode: adjacent_policy_comment
