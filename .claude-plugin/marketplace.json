@@ -18,7 +18,22 @@
       "repository": "https://github.com/Wisteria30/code-guardrails",
       "license": "MIT",
       "keywords": ["static-analysis", "ast-grep", "code-quality", "guardrails", "ai-coding"],
-      "category": "code-quality"
+      "category": "code-quality",
+      "files": [
+        ".claude-plugin/",
+        "commands/",
+        "hooks/",
+        "rules/",
+        "fixtures/",
+        "src/",
+        "tests/",
+        "Cargo.toml",
+        "Cargo.lock",
+        "sgconfig.yml",
+        "setup",
+        "README.md",
+        ".github/"
+      ]
     }
   ]
 }
