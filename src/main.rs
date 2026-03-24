@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::env;
 use std::fs;
-use std::io::{self, BufRead, BufReader, IsTerminal, Write};
+use std::io::{self, BufRead, BufReader, Read as _, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
@@ -38,7 +38,12 @@ fn python_or_regex() -> &'static Regex {
 }
 
 fn main() {
-    let exit_code = match run(env::args().skip(1).collect()) {
+    let args: Vec<String> = env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("--version") {
+        println!("{}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+    let exit_code = match run(args) {
         Ok(code) => code,
         Err(message) => {
             eprintln!("{message}");
@@ -55,24 +60,29 @@ fn run(args: Vec<String>) -> Result<i32, String> {
     let findings = match cli.mode {
         Mode::ScanFile { file } => scan_file(&cli.common, &catalog, &file)?,
         Mode::ScanTree { root } => scan_tree(&cli.common, &catalog, &root)?,
+        Mode::ScanHook => {
+            let mut input = String::new();
+            io::stdin()
+                .read_to_string(&mut input)
+                .map_err(|e| format!("failed to read stdin: {e}"))?;
+            let file_path = extract_hook_file_path(&input)?;
+            if file_path.is_empty() {
+                return Ok(0);
+            }
+            scan_file(&cli.common, &catalog, &PathBuf::from(&file_path))?
+        }
     };
 
     let mut cache = HashMap::new();
     let mut unsuppressed = Vec::new();
-    let mut approved = Vec::new();
 
     for finding in findings {
-        if is_approved(&finding, &mut cache) {
-            approved.push(finding);
-        } else {
+        if !is_approved(&finding, &mut cache) {
             unsuppressed.push(finding);
         }
     }
 
-    match cli.common.format {
-        OutputFormat::Human => format_human(&unsuppressed, &approved)?,
-        OutputFormat::Json => format_json(&unsuppressed)?,
-    }
+    format_json(&unsuppressed)?;
 
     Ok(if unsuppressed.is_empty() { 0 } else { 1 })
 }
@@ -81,24 +91,18 @@ fn run(args: Vec<String>) -> Result<i32, String> {
 struct CommonOptions {
     config_dir: PathBuf,
     ast_grep_bin: String,
-    format: OutputFormat,
     test_globs: Vec<String>,
 }
 
 enum Mode {
     ScanFile { file: PathBuf },
     ScanTree { root: PathBuf },
+    ScanHook,
 }
 
 struct Cli {
     common: CommonOptions,
     mode: Mode,
-}
-
-#[derive(Clone, Copy)]
-enum OutputFormat {
-    Human,
-    Json,
 }
 
 impl Cli {
@@ -112,7 +116,6 @@ impl Cli {
         let mut common = CommonOptions {
             config_dir: find_default_config_dir(&script_dir),
             ast_grep_bin: "ast-grep".to_string(),
-            format: OutputFormat::Json,
             test_globs: DEFAULT_TEST_GLOBS
                 .iter()
                 .map(|s| (*s).to_string())
@@ -135,18 +138,14 @@ impl Cli {
                         .unwrap_or_else(|| PathBuf::from("."));
                     mode = Some(Mode::ScanTree { root });
                 }
+                "scan-hook" => {
+                    mode = Some(Mode::ScanHook);
+                }
                 "--ast-grep-bin" => {
                     common.ast_grep_bin = next_value(&mut iter, "--ast-grep-bin")?;
                 }
                 "--changed-only" => {
                     changed_only = Some(PathBuf::from(next_value(&mut iter, "--changed-only")?));
-                }
-                "--format" => {
-                    common.format = match next_value(&mut iter, "--format")?.as_str() {
-                        "human" => OutputFormat::Human,
-                        "json" => OutputFormat::Json,
-                        other => return Err(format!("unsupported format: {other}")),
-                    };
                 }
                 "--test-globs" => {
                     common.test_globs = next_value(&mut iter, "--test-globs")?
@@ -371,11 +370,8 @@ struct Finding {
     display_file: String,
     canonical_file: PathBuf,
     line0: usize,
-    column0: usize,
     rule_id: String,
-    severity: String,
     message: String,
-    note: Option<String>,
     text: String,
     metadata: HashMap<String, String>,
 }
@@ -399,9 +395,7 @@ struct AstGrepFinding {
     range: AstRange,
     #[serde(rename = "ruleId")]
     rule_id: Option<String>,
-    severity: Option<String>,
     message: Option<String>,
-    note: Option<String>,
     text: Option<String>,
     metadata: Option<HashMap<String, String>>,
 }
@@ -414,7 +408,6 @@ struct AstRange {
 #[derive(Deserialize)]
 struct AstPosition {
     line: usize,
-    column: usize,
 }
 
 fn scan_file(
@@ -721,11 +714,8 @@ fn to_finding(
         display_file,
         canonical_file,
         line0: raw.range.start.line,
-        column0: raw.range.start.column,
         rule_id,
-        severity: raw.severity.unwrap_or_else(|| "hint".to_string()),
         message: raw.message.unwrap_or_default(),
-        note: raw.note,
         text: raw.text.unwrap_or_default(),
         metadata,
     }
@@ -763,251 +753,17 @@ fn write_err(err: io::Error) -> String {
     format!("failed to write output: {err}")
 }
 
-fn char_width(c: char) -> usize {
-    let cp = c as u32;
-    if (0x1100..=0x115F).contains(&cp)
-        || (0x2E80..=0x33BF).contains(&cp)
-        || (0x3400..=0x4DBF).contains(&cp)
-        || (0x4E00..=0xA4CF).contains(&cp)
-        || (0xAC00..=0xD7AF).contains(&cp)
-        || (0xF900..=0xFAFF).contains(&cp)
-        || (0xFE30..=0xFE6F).contains(&cp)
-        || (0xFF01..=0xFF60).contains(&cp)
-        || (0xFFE0..=0xFFE6).contains(&cp)
-        || cp >= 0x20000
-    {
-        2
-    } else {
-        1
+fn extract_hook_file_path(input: &str) -> Result<String, String> {
+    let v: serde_json::Value =
+        serde_json::from_str(input).map_err(|e| format!("failed to parse stdin JSON: {e}"))?;
+    let ti = &v["tool_input"];
+    if let Some(fp) = ti["file_path"].as_str().filter(|s| !s.is_empty()) {
+        return Ok(fp.to_string());
     }
-}
-
-fn str_width(s: &str) -> usize {
-    s.chars().map(char_width).sum()
-}
-
-fn pad_to_width(s: &str, target: usize) -> String {
-    let w = str_width(s);
-    if w >= target {
-        s.to_string()
-    } else {
-        format!("{}{}", s, " ".repeat(target - w))
+    if let Some(c) = ti["content"].as_str().filter(|s| !s.is_empty()) {
+        return Ok(c.to_string());
     }
-}
-
-fn truncate_display(s: &str, max_width: usize) -> String {
-    let total = str_width(s);
-    if total <= max_width {
-        return s.to_string();
-    }
-    if max_width < 3 {
-        return "..".to_string();
-    }
-    let mut width = 0;
-    let mut result = String::new();
-    for c in s.chars() {
-        let cw = char_width(c);
-        if width + cw > max_width - 2 {
-            result.push_str("..");
-            return result;
-        }
-        result.push(c);
-        width += cw;
-    }
-    result
-}
-
-struct Table {
-    headers: Vec<String>,
-    rows: Vec<Vec<String>>,
-}
-
-impl Table {
-    fn render(&self, indent: &str) -> String {
-        let col_count = self.headers.len();
-        let mut widths: Vec<usize> = self.headers.iter().map(|h| str_width(h)).collect();
-        for row in &self.rows {
-            for (i, cell) in row.iter().enumerate() {
-                if i < col_count {
-                    widths[i] = widths[i].max(str_width(cell));
-                }
-            }
-        }
-
-        let mut out = String::new();
-
-        // Top border
-        out.push_str(indent);
-        out.push('┌');
-        for (i, &w) in widths.iter().enumerate() {
-            out.push_str(&"─".repeat(w + 2));
-            out.push(if i < col_count - 1 { '┬' } else { '┐' });
-        }
-        out.push('\n');
-
-        // Header row
-        out.push_str(indent);
-        out.push('│');
-        for (i, h) in self.headers.iter().enumerate() {
-            out.push(' ');
-            out.push_str(&pad_to_width(h, widths[i]));
-            out.push_str(" │");
-        }
-        out.push('\n');
-
-        // Header separator
-        out.push_str(indent);
-        out.push('├');
-        for (i, &w) in widths.iter().enumerate() {
-            out.push_str(&"─".repeat(w + 2));
-            out.push(if i < col_count - 1 { '┼' } else { '┤' });
-        }
-        out.push('\n');
-
-        // Data rows with separators
-        for (row_idx, row) in self.rows.iter().enumerate() {
-            out.push_str(indent);
-            out.push('│');
-            for (i, cell) in row.iter().enumerate() {
-                if i < col_count {
-                    out.push(' ');
-                    out.push_str(&pad_to_width(cell, widths[i]));
-                    out.push_str(" │");
-                }
-            }
-            out.push('\n');
-
-            if row_idx < self.rows.len() - 1 {
-                out.push_str(indent);
-                out.push('├');
-                for (i, &w) in widths.iter().enumerate() {
-                    out.push_str(&"─".repeat(w + 2));
-                    out.push(if i < col_count - 1 { '┼' } else { '┤' });
-                }
-                out.push('\n');
-            }
-        }
-
-        // Bottom border
-        out.push_str(indent);
-        out.push('└');
-        for (i, &w) in widths.iter().enumerate() {
-            out.push_str(&"─".repeat(w + 2));
-            out.push(if i < col_count - 1 { '┴' } else { '┘' });
-        }
-        out.push('\n');
-
-        out
-    }
-}
-
-fn format_human(unsuppressed: &[Finding], approved: &[Finding]) -> Result<(), String> {
-    let use_color = io::stdout().is_terminal();
-    let (bold_red, bold_yellow, dim, reset) = if use_color {
-        ("\x1b[1;91m", "\x1b[1;93m", "\x1b[2m", "\x1b[0m")
-    } else {
-        ("", "", "", "")
-    };
-
-    let mut violations: Vec<&Finding> = Vec::new();
-    let mut fallbacks: Vec<&Finding> = Vec::new();
-
-    for f in unsuppressed {
-        match f.metadata.get("policy_group").map(String::as_str) {
-            Some("test-double") => violations.push(f),
-            _ => fallbacks.push(f),
-        }
-    }
-
-    let mut out = io::stdout().lock();
-
-    // === 真の違反（要対応）===
-    if !violations.is_empty() {
-        writeln!(out, "{bold_red}真の違反（要対応）{reset}").map_err(write_err)?;
-        writeln!(out).map_err(write_err)?;
-
-        let mut groups: Vec<(&str, Vec<&Finding>)> = Vec::new();
-        for f in &violations {
-            let msg = f.message.as_str();
-            if let Some(entry) = groups.iter_mut().find(|(m, _)| *m == msg) {
-                entry.1.push(f);
-            } else {
-                groups.push((msg, vec![f]));
-            }
-        }
-
-        for (msg, findings) in &groups {
-            writeln!(out, "  {msg}").map_err(write_err)?;
-            writeln!(out).map_err(write_err)?;
-
-            let table = Table {
-                headers: vec![
-                    "ファイル".to_string(),
-                    "行".to_string(),
-                    "コード".to_string(),
-                ],
-                rows: findings
-                    .iter()
-                    .map(|f| {
-                        vec![
-                            f.display_file.clone(),
-                            (f.line0 + 1).to_string(),
-                            truncate_display(&f.snippet(), 60),
-                        ]
-                    })
-                    .collect(),
-            };
-            write!(out, "{}", table.render("  ")).map_err(write_err)?;
-            writeln!(out).map_err(write_err)?;
-        }
-    }
-
-    // === fallback（要判断）===
-    if !fallbacks.is_empty() {
-        writeln!(out, "{bold_yellow}fallback（要判断）{reset}").map_err(write_err)?;
-        writeln!(out).map_err(write_err)?;
-
-        let mut summary: Vec<(String, String, usize)> = Vec::new();
-        for f in &fallbacks {
-            if let Some(entry) = summary
-                .iter_mut()
-                .find(|(r, file, _)| r == &f.rule_id && file == &f.display_file)
-            {
-                entry.2 += 1;
-            } else {
-                summary.push((f.rule_id.clone(), f.display_file.clone(), 1));
-            }
-        }
-
-        let table = Table {
-            headers: vec![
-                "カテゴリ".to_string(),
-                "ファイル".to_string(),
-                "件数".to_string(),
-            ],
-            rows: summary
-                .iter()
-                .map(|(rule_id, file, count)| {
-                    vec![rule_id.clone(), file.clone(), format!("{count}件")]
-                })
-                .collect(),
-        };
-        write!(out, "{}", table.render("  ")).map_err(write_err)?;
-        writeln!(out).map_err(write_err)?;
-    }
-
-    // === 承認済み ===
-    if !approved.is_empty() {
-        let mut err = io::stderr().lock();
-        writeln!(
-            err,
-            "{dim}承認済み（対応不要）: {}件（policy-approved コメントにより除外）{reset}",
-            approved.len()
-        )
-        .map_err(write_err)?;
-    }
-
-    Ok(())
+    Ok(String::new())
 }
 
 fn format_json(unsuppressed: &[Finding]) -> Result<(), String> {
@@ -1029,18 +785,14 @@ fn format_json(unsuppressed: &[Finding]) -> Result<(), String> {
                 json!({
                     "file": f.display_file,
                     "line": f.line0 + 1,
-                    "column": f.column0 + 1,
                     "rule_id": f.rule_id,
-                    "severity": f.severity,
                     "message": f.message,
-                    "note": f.note.as_deref().unwrap_or(""),
                     "code": f.snippet(),
                 })
             })
             .collect();
         let group = json!({
             "policy_group": policy_group,
-            "count": items.len(),
             "findings": items,
         });
         writeln!(out, "{}", group).map_err(write_err)?;

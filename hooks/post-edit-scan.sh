@@ -5,29 +5,7 @@ PLUGIN_DIR="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 ENGINE_BIN="$PLUGIN_DIR/bin/code-guardrails-engine"
 ENGINE_CMD=()
 
-# Read JSON from stdin, extract file_path with jq (fast) or python3 (fallback)
-INPUT=$(cat)
-if command -v jq &>/dev/null; then
-  FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.content // ""' 2>/dev/null || echo "")
-elif command -v python3 &>/dev/null; then
-  FILE_PATH=$(echo "$INPUT" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    ti = d.get('tool_input', {})
-    print(ti.get('file_path', ti.get('content', '')))
-except Exception:
-    print('')
-" 2>/dev/null || echo "")
-else
-  FILE_PATH=""
-fi
-
-if [ -z "$FILE_PATH" ]; then
-  exit 0
-fi
-
-# Run policy check
+# Resolve engine binary
 if [ -x "$ENGINE_BIN" ]; then
   ENGINE_CMD=("$ENGINE_BIN")
 elif [ -x "$PLUGIN_DIR/target/release/code-guardrails-engine" ]; then
@@ -35,7 +13,6 @@ elif [ -x "$PLUGIN_DIR/target/release/code-guardrails-engine" ]; then
 elif [ -f "$PLUGIN_DIR/Cargo.toml" ] && command -v cargo &>/dev/null; then
   ENGINE_CMD=(cargo run --quiet --release --manifest-path "$PLUGIN_DIR/Cargo.toml" --bin code-guardrails-engine --)
 else
-  # Engine not available — ask Claude to prompt the user to install Rust
   {
     echo ""
     echo "=== CODE GUARDRAILS: Rust Toolchain Required ==="
@@ -56,8 +33,9 @@ else
   exit 2
 fi
 
+# scan-hook reads stdin (tool_input JSON), extracts file_path, scans, outputs JSON
 set +e
-OUTPUT=$("${ENGINE_CMD[@]}" scan-file --file "$FILE_PATH" --config-dir "$PLUGIN_DIR" --format json 2>/dev/null)
+OUTPUT=$(cat | "${ENGINE_CMD[@]}" scan-hook --config-dir "$PLUGIN_DIR" 2>/dev/null)
 EXIT_CODE=$?
 set -e
 
@@ -72,34 +50,10 @@ if [ "$EXIT_CODE" -eq 0 ] || [ -z "$OUTPUT" ]; then
   exit 0
 fi
 
-# Violations found — format and output to stderr (exit 2 feeds stderr to Claude)
+# Violations found — output JSON to stderr (exit 2 feeds stderr to Claude)
 {
-  echo ""
   echo "=== CODE GUARDRAILS: Policy Violations Found ==="
-  echo ""
-  if command -v jq &>/dev/null; then
-    echo "$OUTPUT" | jq -r '"\(.file):\(.line):\(.column) [\(.rule_id)] \(.message)" + if .note != "" then "\n    note: \(.note)" else "" end + if .code != "" then "\n    code: \(.code)" else "" end' 2>/dev/null || echo "$OUTPUT"
-  elif command -v python3 &>/dev/null; then
-    echo "$OUTPUT" | python3 -c "
-import sys, json
-for line in sys.stdin:
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        f = json.loads(line)
-        print(f\"  {f['file']}:{f['line']}:{f['column']} [{f['rule_id']}] {f['message']}\")
-        if f.get('note'):
-            print(f\"    note: {f['note']}\")
-        if f.get('code'):
-            print(f\"    code: {f['code'][:200]}\")
-    except (json.JSONDecodeError, KeyError):
-        print(f'  {line}')
-"
-  else
-    echo "$OUTPUT"
-  fi
-  echo ""
+  echo "$OUTPUT"
   echo "Fix these violations before proceeding. For intentional fallbacks, add:"
   echo "  # policy-approved: REQ-xxx <reason>"
   echo "=== END CODE GUARDRAILS ==="

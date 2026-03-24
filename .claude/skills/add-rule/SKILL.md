@@ -97,7 +97,7 @@ Every `should_fail` fixture must be detected. Every `should_pass` fixture must h
 
 Smoke test on a real project (optional but recommended):
 ```bash
-./bin/code-guardrails-engine scan-tree --root /path/to/project --config-dir . --format human
+./bin/code-guardrails-engine scan-tree --root /path/to/project --config-dir .
 ```
 
 When tests fail:

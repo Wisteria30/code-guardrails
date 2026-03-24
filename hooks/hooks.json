@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "test -x ${CLAUDE_PLUGIN_ROOT}/bin/code-guardrails-engine || bash ${CLAUDE_PLUGIN_ROOT}/setup 2>&1",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh 2>&1",
             "timeout": 60
           }
         ]

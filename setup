@@ -103,12 +103,12 @@ detect_target() {
 
 download_binary() {
   local target="$1"
+  local plugin_json="$SCRIPT_DIR/.claude-plugin/plugin.json"
   local version archive_name url
 
-  version=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
-    | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//')
-
-  if [ -z "${version:-}" ]; then
+  # plugin.json からバージョンを取得（Cargo.toml と CI で同期済み）
+  version="v$(grep -o '"version": *"[^"]*"' "$plugin_json" | head -1 | cut -d'"' -f4)"
+  if [ -z "$version" ] || [ "$version" = "v" ]; then
     return 1
   fi
 
@@ -125,6 +125,21 @@ download_binary() {
     tar xzf "$tmp_dir/$archive_name" -C "$BIN_DIR"
     chmod +x "$ENGINE_BIN"
     return 0
+  fi
+
+  # フォールバック: 特定バージョンがなければ latest を試す
+  echo "  ${version} not found, trying latest..."
+  local latest
+  latest=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
+    | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//')
+  if [ -n "${latest:-}" ]; then
+    url="https://github.com/${REPO}/releases/download/${latest}/${archive_name}"
+    if curl -fsSL "$url" -o "$tmp_dir/$archive_name" 2>/dev/null; then
+      mkdir -p "$BIN_DIR"
+      tar xzf "$tmp_dir/$archive_name" -C "$BIN_DIR"
+      chmod +x "$ENGINE_BIN"
+      return 0
+    fi
   fi
 
   return 1

@@ -142,14 +142,9 @@ fn changed_only_approved_exits_0() {
 }
 
 #[test]
-fn format_json_outputs_valid_json_lines() {
+fn json_output_has_valid_schema() {
     let fixture = fixture("python/fallback/should_fail/or_default.py");
-    let output = run_engine(&[
-        "--changed-only",
-        fixture.to_str().unwrap(),
-        "--format",
-        "json",
-    ]);
+    let output = run_engine(&["--changed-only", fixture.to_str().unwrap()]);
 
     assert_eq!(output.status.code(), Some(1));
     let lines = stdout_lines(&output);
@@ -162,16 +157,13 @@ fn format_json_outputs_valid_json_lines() {
             payload.get("policy_group").is_some(),
             "missing key: policy_group"
         );
-        assert!(payload.get("count").is_some(), "missing key: count");
         let findings = payload
             .get("findings")
             .and_then(|v| v.as_array())
             .expect("missing key: findings");
         assert!(!findings.is_empty());
         for finding in findings {
-            for key in [
-                "file", "line", "column", "rule_id", "severity", "message", "code",
-            ] {
+            for key in ["file", "line", "rule_id", "message", "code"] {
                 assert!(finding.get(key).is_some(), "missing key in finding: {key}");
             }
         }
@@ -181,12 +173,7 @@ fn format_json_outputs_valid_json_lines() {
 #[test]
 fn metadata_parsing_approval_model_works() {
     let fixture = fixture("python/fallback/approved/approved_get_default.py");
-    let output = run_engine(&[
-        "--changed-only",
-        fixture.to_str().unwrap(),
-        "--format",
-        "json",
-    ]);
+    let output = run_engine(&["--changed-only", fixture.to_str().unwrap()]);
 
     assert_eq!(output.status.code(), Some(0));
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
@@ -222,8 +209,6 @@ fn full_scan_works_when_root_differs_from_config_dir() {
         sample_root.to_str().unwrap(),
         "--config-dir",
         config_dir.to_str().unwrap(),
-        "--format",
-        "json",
     ]);
 
     assert_eq!(output.status.code(), Some(1));
@@ -327,8 +312,6 @@ fn changed_only_relative_path_uses_caller_workdir() {
             "or_default.py",
             "--config-dir",
             config_dir.to_str().unwrap(),
-            "--format",
-            "json",
         ],
         &sample_root,
     );

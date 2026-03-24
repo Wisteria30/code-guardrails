@@ -199,16 +199,13 @@ Test paths (`**/test/**`, `**/tests/**`, `**/*_test.py`, `*.test.ts`, etc.) are 
 
 ```bash
 # Full project scan
-./bin/code-guardrails-engine scan-tree --root . --config-dir . --format human
+./bin/code-guardrails-engine scan-tree --root . --config-dir .
 
 # Single file
-./bin/code-guardrails-engine scan-file --file path/to/file.py --config-dir . --format human
-
-# JSON output (CI / hooks)
-./bin/code-guardrails-engine scan-file --file file.py --config-dir . --format json
+./bin/code-guardrails-engine scan-file --file path/to/file.py --config-dir .
 
 # Dev path without install copy
-cargo run --quiet --release --bin code-guardrails-engine -- scan-tree --root . --config-dir . --format human
+cargo run --quiet --release --bin code-guardrails-engine -- scan-tree --root . --config-dir .
 ```
 
 ---
@@ -222,6 +219,10 @@ python scripts/bench.py --iterations 10
 ```
 
 `pytest` and `scripts/bench.py` are development helpers and require Python 3.12+.
+
+## Releasing
+
+See [docs/releasing.md](docs/releasing.md).
 
 ## License
 

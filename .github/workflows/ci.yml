@@ -40,3 +40,43 @@ jobs:
         run: test -x hooks/post-edit-scan.sh
       - name: Check setup script is executable
         run: test -x setup
+
+  version-lint:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check version bump required
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          CHANGED=$(git diff --name-only "$BASE_SHA"...HEAD -- \
+            'src/' 'hooks/' 'rules/' 'commands/' 'setup' \
+            '.claude-plugin/plugin.json' '.claude-plugin/marketplace.json' \
+            'sgconfig.yml' 'Cargo.lock' \
+            | grep -v '^$' || true)
+          if [ -z "$CHANGED" ]; then
+            echo "No substantive changes, skipping version check"
+            exit 0
+          fi
+          OLD_VER=$(git show "$BASE_SHA":Cargo.toml | grep '^version' | head -1 | sed 's/.*"\(.*\)"/\1/')
+          NEW_VER=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          if [ "$OLD_VER" = "$NEW_VER" ]; then
+            echo "::error::Substantive files changed but Cargo.toml version not bumped ($OLD_VER)"
+            echo "Changed files:"
+            echo "$CHANGED"
+            exit 1
+          fi
+          echo "Version bumped: $OLD_VER → $NEW_VER"
+      - name: Check version consistency
+        run: |
+          CARGO_VER=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          PLUGIN_VER=$(jq -r '.version' .claude-plugin/plugin.json)
+          echo "Cargo.toml:  $CARGO_VER"
+          echo "plugin.json: $PLUGIN_VER"
+          if [ "$CARGO_VER" != "$PLUGIN_VER" ]; then
+            echo "::error::Version mismatch! Cargo.toml ($CARGO_VER) != plugin.json ($PLUGIN_VER)"
+            exit 1
+          fi
