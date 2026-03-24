@@ -1,0 +1,17 @@
+{
+  "description": "Scan edited files for policy violations (test doubles and unapproved fallbacks)",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/post-edit-scan.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
