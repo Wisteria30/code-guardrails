@@ -24,7 +24,7 @@ fi
 
 # Run policy check
 set +e
-OUTPUT=$(cd "$PLUGIN_DIR" && python3 "$CHECK_POLICY" --changed-only "$FILE_PATH" --format json 2>/dev/null)
+OUTPUT=$(python3 "$CHECK_POLICY" --config-dir "$PLUGIN_DIR" --changed-only "$FILE_PATH" --format json 2>/dev/null)
 EXIT_CODE=$?
 set -e
 
