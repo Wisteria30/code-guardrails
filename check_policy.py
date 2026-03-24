@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import fnmatch
 import json
 import re
 import subprocess
@@ -10,7 +9,7 @@ import sys
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any
 
 import yaml
@@ -19,6 +18,8 @@ APPROVAL_RE = re.compile(
     r"policy-approved:\s*(REQ|ADR|SPEC)-[A-Za-z0-9._-]+",
     re.IGNORECASE,
 )
+
+APPROVAL_MODE_ADJACENT = "adjacent_policy_comment"
 
 DEFAULT_TEST_GLOBS = (
     "**/test/**",
@@ -31,15 +32,11 @@ DEFAULT_TEST_GLOBS = (
     "**/__tests__/**",
 )
 
-# ripgrep pre-filter pattern for candidate files
 _RG_PATTERN = (
     r"mock|stub|fake|= .* or |\?\?|\|\||except.*pass|catch|suppress|getattr|getenv|\.get\("
 )
 
-# Module-level file cache
 _FILE_CACHE: dict[Path, list[str]] = {}
-
-# Module-level rule metadata cache (ruleId -> metadata dict)
 _RULE_METADATA: dict[str, dict[str, Any]] = {}
 
 
@@ -55,12 +52,15 @@ class Finding:
     text: str
     metadata: dict[str, Any]
 
+    @property
+    def snippet(self) -> str:
+        if not self.text:
+            return ""
+        return self.text.strip().replace("\n", " ")[:200]
+
 
 def _load_rule_metadata(config_dir: Path) -> dict[str, dict[str, Any]]:
-    """Load metadata from all rule YAML files under the config directory.
-
-    Returns a mapping from ruleId to metadata dict.
-    """
+    """Load metadata from all rule YAML files under the config directory."""
     global _RULE_METADATA
     if _RULE_METADATA:
         return _RULE_METADATA
@@ -110,15 +110,11 @@ def iter_json_stream(stdout: str) -> Iterator[dict[str, Any]]:
         try:
             yield json.loads(line)
         except json.JSONDecodeError:
-            # Skip non-JSON lines (e.g. ast-grep error/help messages)
             continue
 
 
 def read_lines(path: Path) -> list[str]:
-    try:
-        return path.read_text(encoding="utf-8").splitlines()
-    except UnicodeDecodeError:
-        return path.read_text(encoding="utf-8", errors="replace").splitlines()
+    return path.read_text(encoding="utf-8", errors="replace").splitlines()
 
 
 def read_lines_cached(path: Path) -> list[str]:
@@ -145,7 +141,6 @@ def has_adjacent_policy_approval(file_path: Path, line0: int) -> bool:
 
 def to_finding(item: dict[str, Any], rule_metadata: dict[str, dict[str, Any]]) -> Finding:
     rule_id = item.get("ruleId", "<unknown-rule>")
-    # Merge metadata from the JSON output (if present) with rule-file metadata
     metadata = dict(rule_metadata.get(rule_id, {}))
     if item.get("metadata"):
         metadata.update(item["metadata"])
@@ -164,24 +159,12 @@ def to_finding(item: dict[str, Any], rule_metadata: dict[str, dict[str, Any]]) -
 
 def matches_test_globs(filepath: str, test_globs: tuple[str, ...]) -> bool:
     """Check if a file path matches any of the test glob patterns."""
-    for pattern in test_globs:
-        if fnmatch.fnmatch(filepath, pattern):
-            return True
-        # Also check sub-paths for directory-based patterns
-        parts = Path(filepath).parts
-        for i in range(len(parts)):
-            sub = "/".join(parts[i:])
-            if fnmatch.fnmatch(sub, pattern):
-                return True
-    return False
+    path = PurePath(filepath)
+    return any(path.match(pattern) for pattern in test_globs)
 
 
 def ripgrep_candidate_files(root: Path) -> list[str] | None:
-    """Use ripgrep to pre-filter files that might contain policy violations.
-
-    Returns a list of file paths, or None if ripgrep is not available
-    or finds no candidates (fall back to full scan).
-    """
+    """Use ripgrep to pre-filter files that might contain policy violations."""
     cmd = [
         "rg",
         "--files-with-matches",
@@ -194,17 +177,11 @@ def ripgrep_candidate_files(root: Path) -> list[str] | None:
         str(root),
     ]
     try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-        )
+        proc = subprocess.run(cmd, capture_output=True, text=True)
     except FileNotFoundError:
-        # ripgrep not installed -- fall back to full scan
         return None
 
     if proc.returncode not in (0, 1):
-        # rg error -- fall back to full scan
         return None
 
     files = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
@@ -219,64 +196,29 @@ def run_ast_grep(
 ) -> list[Finding]:
     """Run ast-grep scan.
 
-    Args:
-        config_dir: Directory containing sgconfig.yml (used as cwd).
-        ast_grep_bin: Path/name of ast-grep binary.
-        rule_metadata: Mapping from rule ID to metadata dict.
-        targets: If provided, scan these specific files/paths. Otherwise scan '.'.
+    When targets is None, scans '.'. Otherwise scans all targets in a single invocation.
     """
-    if targets is not None:
-        all_findings: list[Finding] = []
-        for target in targets:
-            cmd = [ast_grep_bin, "scan", "--json=stream", target]
-            try:
-                proc = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    cwd=str(config_dir),
-                )
-            except FileNotFoundError as exc:
-                print(
-                    f"Could not execute {ast_grep_bin!r}. Install ast-grep and/or pass --ast-grep-bin.",
-                    file=sys.stderr,
-                )
-                raise SystemExit(2) from exc
+    scan_targets = targets if targets is not None else ["."]
+    cmd = [ast_grep_bin, "scan", "--json=stream", *scan_targets]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(config_dir))
+    except FileNotFoundError as exc:
+        print(
+            f"Could not execute {ast_grep_bin!r}. Install ast-grep and/or pass --ast-grep-bin.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2) from exc
 
-            if proc.returncode not in (0, 1):
-                print(proc.stderr, file=sys.stderr)
-                raise SystemExit(2)
+    if proc.returncode not in (0, 1):
+        print(proc.stderr, file=sys.stderr)
+        raise SystemExit(2)
 
-            all_findings.extend(
-                to_finding(item, rule_metadata) for item in iter_json_stream(proc.stdout)
-            )
-        return all_findings
-    else:
-        cmd = [ast_grep_bin, "scan", "--json=stream", "."]
-        try:
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=str(config_dir),
-            )
-        except FileNotFoundError as exc:
-            print(
-                f"Could not execute {ast_grep_bin!r}. Install ast-grep and/or pass --ast-grep-bin.",
-                file=sys.stderr,
-            )
-            raise SystemExit(2) from exc
-
-        if proc.returncode not in (0, 1):
-            print(proc.stderr, file=sys.stderr)
-            raise SystemExit(2)
-
-        return [to_finding(item, rule_metadata) for item in iter_json_stream(proc.stdout)]
+    return [to_finding(item, rule_metadata) for item in iter_json_stream(proc.stdout)]
 
 
 def is_approved(finding: Finding, root: Path) -> bool:
     approval_mode = finding.metadata.get("approval_mode", "none")
-    if approval_mode != "adjacent_policy_comment":
+    if approval_mode != APPROVAL_MODE_ADJACENT:
         return False
     return has_adjacent_policy_approval(root / finding.file, finding.line0)
 
@@ -301,9 +243,8 @@ def format_human(unsuppressed: list[Finding], approved: list[Finding], use_color
         )
         if finding.note:
             print(f"  {DIM}note: {finding.note}{RESET}")
-        snippet = finding.text.strip().replace("\n", " ")
-        if snippet:
-            print(f"  {DIM}code: {snippet[:200]}{RESET}")
+        if finding.snippet:
+            print(f"  {DIM}code: {finding.snippet}{RESET}")
 
     if approved:
         print("", file=sys.stderr)
@@ -320,7 +261,7 @@ def format_json(unsuppressed: list[Finding]) -> None:
             "rule_id": finding.rule_id,
             "severity": finding.severity,
             "message": finding.message,
-            "code": finding.text.strip().replace("\n", " ")[:200] if finding.text else "",
+            "code": finding.snippet,
         }
         print(json.dumps(obj, ensure_ascii=False))
 
@@ -359,39 +300,29 @@ def main() -> int:
     config_dir = Path(args.config_dir).resolve() if args.config_dir else script_dir
     test_globs = tuple(g.strip() for g in args.test_globs.split(",") if g.strip())
 
-    # Load rule metadata from YAML files
     rule_metadata = _load_rule_metadata(config_dir)
 
-    # --changed-only mode: scan a single file
     if args.changed_only:
         filepath = Path(args.changed_only)
 
-        # Check if file matches test globs -- if so, skip scan
-        file_str = str(filepath)
-        if matches_test_globs(file_str, test_globs):
+        if matches_test_globs(str(filepath), test_globs):
             return 0
 
-        # Make the path relative to config_dir for ast-grep
         try:
             abs_path = filepath.resolve()
             rel_path = abs_path.relative_to(config_dir)
         except ValueError:
-            # File is not under config_dir -- use absolute path
             rel_path = abs_path
 
         findings = run_ast_grep(
             config_dir, args.ast_grep_bin, rule_metadata, targets=[str(rel_path)]
         )
-
-        # For --changed-only, root for approval checking is config_dir
         root = config_dir
     else:
         root = Path(args.root).resolve()
 
-        # Try ripgrep pre-filter optimization for full project scan
         candidate_files = ripgrep_candidate_files(root)
         if candidate_files is not None:
-            # Make paths relative to config_dir
             rel_targets = []
             for f in candidate_files:
                 try:
