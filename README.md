@@ -17,7 +17,7 @@ brew install ast-grep ripgrep
 curl https://sh.rustup.rs -sSf | sh
 ```
 
-### Option A: Marketplace (recommended)
+### Marketplace
 
 Run inside Claude Code:
 
@@ -28,15 +28,6 @@ Run inside Claude Code:
 
 Restart Claude Code. Verify with `/scan`.
 
-### Option B: Git clone
-
-```bash
-git clone https://github.com/Wisteria30/code-guardrails.git ~/.claude/plugins/code-guardrails
-~/.claude/plugins/code-guardrails/setup
-```
-
-Restart Claude Code.
-
 ### Share with your team (optional)
 
 ```bash
@@ -44,6 +35,24 @@ cp -Rf ~/.claude/plugins/code-guardrails .claude/plugins/code-guardrails
 rm -rf .claude/plugins/code-guardrails/.git
 git add .claude/plugins/code-guardrails && git commit -m "chore: add code-guardrails plugin"
 ```
+
+### Add CLAUDE.md rules (recommended)
+
+The hook detects violations after the fact, but **CLAUDE.md prevents them from being written in the first place**. Add the following to your project's `CLAUDE.md`:
+
+```markdown
+## AI Code Policy
+
+code-guardrails hook is active. Every Edit/Write is scanned for violations.
+
+- NEVER write `except: pass`, empty `catch {}`, or `.catch(() => null)` — log the error and re-raise or wrap
+- NEVER use `mock`, `stub`, `fake` identifiers in production code — test doubles belong in test files only
+- NEVER add silent defaults (`.get(key, default)`, `?? value`, `|| value`) without spec approval — fail explicitly or mark with `# policy-approved: REQ-xxx <reason>`
+- NEVER leave TODO/placeholder/stub implementations — implement fully or raise NotImplementedError
+- Unspecified fallbacks are bugs. If the spec doesn't say "default to X", don't default to X
+```
+
+Adapt the rules to your project. The key is **specific, verifiable constraints** — vague guidance like "handle errors properly" doesn't change behavior.
 
 ---
 
