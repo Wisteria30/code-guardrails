@@ -8,7 +8,7 @@
 
 **Tech Stack:** ast-grep (AST pattern detection), ripgrep (file pre-filter), Python 3.10+ (CLI wrapper), Claude Code plugin system (hooks, commands, skills)
 
-**Spec:** `~/.gstack/projects/code-guardrails/wis30-main-design-20260324-134339.md`
+**Spec:** `~/.gstack/projects/code-guardrails/` (design doc)
 
 ---
 
@@ -24,7 +24,7 @@
 - [ ] **Step 1: Move files to plugin-root layout**
 
 ```bash
-cd /Users/wis30/ghq/github.com/Wisteria30/code-guardrails
+cd <project-root>
 mv ast_grep_policy_pack/rules ./rules
 mv ast_grep_policy_pack/sgconfig.yml ./sgconfig.yml
 mv ast_grep_policy_pack/check_policy.py ./check_policy.py
@@ -1205,7 +1205,7 @@ Expected: May find violations in fixture files (should_fail), but not in should_
 
 Start Claude Code with the plugin:
 ```bash
-claude --plugin-dir /Users/wis30/ghq/github.com/Wisteria30/code-guardrails
+claude --plugin-dir /path/to/code-guardrails
 ```
 
 Ask Claude to write code with a mock:
