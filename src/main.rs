@@ -1013,11 +1013,7 @@ fn format_human(unsuppressed: &[Finding], approved: &[Finding]) -> Result<(), St
 fn format_json(unsuppressed: &[Finding]) -> Result<(), String> {
     let mut groups: Vec<(String, Vec<&Finding>)> = Vec::new();
     for f in unsuppressed {
-        let pg = f
-            .metadata
-            .get("policy_group")
-            .cloned()
-            .unwrap_or_default();
+        let pg = f.metadata.get("policy_group").cloned().unwrap_or_default();
         if let Some(entry) = groups.iter_mut().find(|(g, _)| g == &pg) {
             entry.1.push(f);
         } else {
