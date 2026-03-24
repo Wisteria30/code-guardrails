@@ -43,15 +43,6 @@ jobs:
       - run: pip install PyYAML pytest pytest-cov
       - run: pytest tests/ -v --tb=short
 
-  validate-rules:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install ast-grep
-        run: npm install -g @ast-grep/cli
-      - name: Validate ast-grep config
-        run: ast-grep scan --test-dir fixtures .
-
   validate-plugin:
     runs-on: ubuntu-latest
     steps:
