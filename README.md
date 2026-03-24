@@ -6,31 +6,19 @@ Claude Code plugin that detects test doubles and unapproved fallbacks in product
 
 [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [ast-grep](https://ast-grep.github.io/), [ripgrep](https://github.com/BurntSushi/ripgrep), Python 3.10+
 
-## Install (~30 seconds)
+## Install — 30 seconds
 
 ### Step 1: Install on your machine
 
-Open Claude Code and paste this:
+Open Claude Code and paste this. Claude does the rest.
 
-```
-code-guardrails pluginをインストールしてください。
-1. git clone https://github.com/Wisteria30/code-guardrails.git ~/.claude/plugins/code-guardrails を実行
-2. ~/.claude/plugins/code-guardrails/setup を実行して依存関係を確認
-3. ast-grepまたはripgrepが未インストールなら、setupの指示に従ってインストール
-4. 完了したらClaude Codeを再起動して反映
-```
+> Install code-guardrails: run **`git clone https://github.com/Wisteria30/code-guardrails.git ~/.claude/plugins/code-guardrails && ~/.claude/plugins/code-guardrails/setup`** — if ast-grep or ripgrep is missing, install them following the setup output. Then restart Claude Code so the plugin loads. After restart, confirm the plugin is active by running `/scan` and checking that it reports results.
 
-### Step 2: Add to your repo (optional)
+### Step 2: Add to your repo so teammates get it (optional)
 
-チームメンバーにも共有するなら、Claude Codeにこれを貼ってください:
+> Add code-guardrails to this project: run **`cp -Rf ~/.claude/plugins/code-guardrails .claude/plugins/code-guardrails && rm -rf .claude/plugins/code-guardrails/.git && .claude/plugins/code-guardrails/setup`** then commit the `.claude/plugins/code-guardrails` directory so teammates get it on `git clone`.
 
-```
-code-guardrails pluginをこのリポジトリに追加してください。
-1. ~/.claude/plugins/code-guardrails をこのリポジトリの .claude/plugins/code-guardrails にコピー
-2. コピー先の .git ディレクトリは削除（サブモジュールではなくファイルとしてコミットするため）
-3. .claude/plugins/code-guardrails/setup を実行して動作確認
-4. git add .claude/plugins/code-guardrails && git commit で追加をコミット
-```
+Real files get committed to your repo (not a submodule), so `git clone` just works. Everything lives inside `.claude/plugins/`. Nothing touches your PATH or runs in the background.
 
 ## What it does
 
