@@ -1,62 +1,83 @@
-# ast-grep starter pack for banning test doubles and unapproved fallbacks
+# code-guardrails
 
-This pack treats your policy as **linting rules** backed by ast-grep, with a tiny wrapper to handle explicit fallback approvals.
+Claude Code plugin that detects test doubles and unapproved fallbacks in production code. AI coding tools silently introduce mock/stub/fake objects and fallback behaviors — this plugin catches them.
 
-## Why this shape?
+## Install
 
-- ast-grep is a strong fit for syntax-level bans across many languages.
-- It is *not* truly one-rule-for-all-languages. Patterns must still be valid syntax for each language.
-- The clean design is:
-  - one shared policy taxonomy (`test-double`, `fallback`)
-  - one rule pack per language
-  - one thin wrapper that enforces approval comments for fallback rules
+```bash
+# Project-local (recommended)
+git clone https://github.com/Wisteria30/code-guardrails .claude/plugins/code-guardrails
 
-## Approval model
+# Or user-global
+git clone https://github.com/Wisteria30/code-guardrails ~/.claude/plugins/code-guardrails
 
-Fallback rules in this pack carry:
-
-```yaml
-metadata:
-  policy_group: fallback
-  approval_mode: adjacent_policy_comment
+# Verify dependencies
+.claude/plugins/code-guardrails/setup
 ```
 
-The wrapper (`check_policy.py`) suppresses a fallback finding **only** when there is an adjacent comment like:
+Requires: [ast-grep](https://ast-grep.github.io/), [ripgrep](https://github.com/BurntSushi/ripgrep), Python 3.10+
 
-```py
+## What it does
+
+**PostToolUse hook** — After every Edit/Write, automatically scans the changed file and warns Claude if violations are found.
+
+**`/scan` command** — Full project scan on demand.
+
+## Two policies
+
+### 1. No test doubles in production
+- `mock`, `stub`, `fake` identifiers banned outside test files
+- `unittest.mock` imports banned outside test files
+- No exceptions.
+
+### 2. No unapproved fallbacks
+- Default values in `.get()`, `getattr()`, `next()`, `os.getenv()` flagged
+- `or` fallbacks in assignments (`x = a or b`) flagged
+- `??`, `||`, `??=`, `||=` in TypeScript flagged
+- `except: pass`, `contextlib.suppress`, empty catch blocks flagged
+- Promise `.catch(() => default)` flagged
+
+### Approval model
+
+To approve an intentional fallback, add a comment within 2 lines above:
+
+```python
 # policy-approved: REQ-123 explicit locale default
 lang = payload.get("lang", "ja-JP")
 ```
 
-```ts
+```typescript
 // policy-approved: ADR-7 explicit demo-mode fallback
 const label = apiValue ?? "demo";
 ```
 
-Test-double rules have:
+Prefix must be `REQ-`, `ADR-`, or `SPEC-` followed by an identifier.
 
-```yaml
-metadata:
-  policy_group: test-double
-  approval_mode: none
-```
-
-So they always fail outside tests.
-
-## Usage
+## CLI usage
 
 ```bash
-# run ast-grep directly
-ast-grep scan .
-
-# CI / stricter policy wrapper
+# Full project scan
 python check_policy.py .
+
+# Single file scan
+python check_policy.py --changed-only path/to/file.py
+
+# JSON output (for CI/hooks)
+python check_policy.py --changed-only file.py --format json
 ```
 
-## Files vs tests
+## Rules
 
-Each rule excludes common test paths with `ignores:`. Tweak these globs for your repo layout.
+17 rules: 9 Python + 8 TypeScript. All validated against 34+ test fixtures.
 
-## Important note
+Test paths (`**/test/**`, `**/tests/**`, `**/*_test.py`, etc.) are excluded from all rules.
 
-These rules are a **starter pack**. They were written against ast-grep's documented rule syntax, but they were not executed in this environment because the ast-grep CLI was not installed here. Run `ast-grep test` and the playground locally, then tune patterns and globs for your codebase.
+## Development
+
+```bash
+# Run rule validation tests
+python test_rules.py
+
+# Run CLI tests
+python test_check_policy.py
+```
