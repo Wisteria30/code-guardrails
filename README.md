@@ -1,10 +1,48 @@
 # code-guardrails
 
-**AI が書いたコードに紛れ込む「握りつぶし」と「ハリボテ」を自動検出する Claude Code プラグイン**
+**Catch silent fallbacks and test doubles that AI coding tools sneak into your production code.**
 
-AI コーディングツールは、動くコードを素早く生成します。しかしその裏で、エラーを `pass` で握りつぶしたり、`mock` オブジェクトを本番コードに残したり、`?? "default"` で問題を先送りにすることがあります。レビューで見落とせば、それがそのまま本番に入ります。
+AI tools generate working code fast. But behind the scenes, they swallow exceptions with `pass`, leave `mock` objects in production, and paper over failures with `?? "default"`. Miss it in review, and it ships.
 
-code-guardrails は、ファイル保存のたびに ast-grep でコードを構文解析し、こうしたパターンを即座に検出して Claude に警告します。
+code-guardrails parses every file save with ast-grep and warns Claude immediately when these patterns appear.
+
+---
+
+## Install
+
+**Prerequisites:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [ast-grep](https://ast-grep.github.io/) 0.14+, [ripgrep](https://github.com/BurntSushi/ripgrep) 14.0+
+
+```bash
+brew install ast-grep ripgrep
+```
+
+### Option A: Marketplace (recommended)
+
+Run inside Claude Code:
+
+```
+/plugin marketplace add Wisteria30/code-guardrails
+/plugin install code-guardrails@code-guardrails-marketplace
+```
+
+Restart Claude Code. Verify with `/scan`.
+
+### Option B: Git clone
+
+```bash
+git clone https://github.com/Wisteria30/code-guardrails.git ~/.claude/plugins/code-guardrails
+~/.claude/plugins/code-guardrails/setup
+```
+
+Restart Claude Code.
+
+### Share with your team (optional)
+
+```bash
+cp -Rf ~/.claude/plugins/code-guardrails .claude/plugins/code-guardrails
+rm -rf .claude/plugins/code-guardrails/.git
+git add .claude/plugins/code-guardrails && git commit -m "chore: add code-guardrails plugin"
+```
 
 ---
 
@@ -12,56 +50,56 @@ code-guardrails は、ファイル保存のたびに ast-grep でコードを構
 
 ### Test doubles in production code
 
-本番コードに mock / stub / fake が残っていたら即エラー。テストファイルでは無視します。
+Flags `mock` / `stub` / `fake` identifiers and `unittest.mock` imports in non-test files. Test files are always ignored.
 
 ```python
-# NG — 本番コードに mock が残っている
+# NG — mock left in production code
 mock_client = MockHttpClient()
 from unittest.mock import patch
 ```
 
 ```python
-# OK — テストファイル内なら問題なし (test_*.py, **/tests/** 等)
+# OK — inside test files (test_*.py, **/tests/**, etc.)
 mock_client = MockHttpClient()
 ```
 
 ### Unapproved fallbacks
 
-エラーを握りつぶす・暗黙のデフォルト値で誤魔化すパターンを検出します。
-適切なエラーハンドリング（ログ出力、re-raise、エラー変換）は検出しません。
+Flags patterns that silently swallow errors or substitute default values.
+Proper error handling (logging, re-raise, error wrapping) is **not** flagged.
 
 #### Python
 
 ```python
-# NG — 例外の握りつぶし
+# NG — swallowed exception
 try:
     connect()
 except ConnectionError:
     pass
 
-# NG — 暗黙のデフォルト値
+# NG — silent defaults
 timeout = config.get("timeout", 30)
 name = user_name or "unknown"
 port = os.getenv("PORT", "8080")
 val = getattr(obj, "attr", None)
 
-# NG — エラーの黙殺
+# NG — suppressed error
 with contextlib.suppress(KeyError):
     process(data)
 ```
 
 ```python
-# OK — 例外を適切に処理している
+# OK — exception handled properly
 try:
     connect()
 except ConnectionError as e:
     logger.error(f"Connection failed: {e}")
     raise ServiceUnavailable("DB unreachable") from e
 
-# OK — デフォルト引数なしの .get()
+# OK — .get() without a default
 value = config.get("timeout")
 
-# OK — 条件分岐での or（代入ではない）
+# OK — or in a condition, not an assignment
 if user_name or fallback_name:
     greet()
 ```
@@ -69,20 +107,20 @@ if user_name or fallback_name:
 #### TypeScript
 
 ```typescript
-// NG — デフォルト値でごまかす
+// NG — silent defaults
 const port = config.port ?? 3000;
 const name = input || "default";
 options.timeout ||= 5000;
 cache ??= new Map();
 
-// NG — catch で握りつぶし
+// NG — swallowed errors
 try { await fetch(url); } catch (e) { return []; }
 try { parse(json); } catch {}
 fetch(url).catch(() => null);
 ```
 
 ```typescript
-// OK — 例外を適切に処理している
+// OK — exception handled properly
 try {
   await fetch(url);
 } catch (e) {
@@ -90,13 +128,13 @@ try {
   throw new FetchError("request failed", { cause: e });
 }
 
-// OK — catch で再 throw
+// OK — catch with re-throw
 promise.catch((e) => { throw new AppError(e); });
 ```
 
 ### Approval model
 
-意図的なフォールバックには、隣接コメントで承認を明示できます。
+Intentional fallbacks can be approved with an adjacent comment:
 
 ```python
 # policy-approved: REQ-123 explicit locale default
@@ -108,57 +146,19 @@ lang = payload.get("lang", "ja-JP")
 const label = apiValue ?? "demo";
 ```
 
-プレフィックスは `REQ-`, `ADR-`, `SPEC-` + 識別子。
-
----
-
-## Install
-
-**前提:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [ast-grep](https://ast-grep.github.io/) 0.14+, [ripgrep](https://github.com/BurntSushi/ripgrep) 14.0+
-
-```bash
-brew install ast-grep ripgrep
-```
-
-### Option A: Marketplace (recommended)
-
-Claude Code 内で実行:
-
-```
-/plugin marketplace add Wisteria30/code-guardrails
-/plugin install code-guardrails@code-guardrails-marketplace
-```
-
-再起動して `/scan` で確認。
-
-### Option B: Git clone
-
-```bash
-git clone https://github.com/Wisteria30/code-guardrails.git ~/.claude/plugins/code-guardrails
-~/.claude/plugins/code-guardrails/setup
-```
-
-再起動。
-
-### チームで共有する (optional)
-
-```bash
-cp -Rf ~/.claude/plugins/code-guardrails .claude/plugins/code-guardrails
-rm -rf .claude/plugins/code-guardrails/.git
-git add .claude/plugins/code-guardrails && git commit -m "chore: add code-guardrails plugin"
-```
+Accepted prefixes: `REQ-`, `ADR-`, `SPEC-` followed by an identifier.
 
 ---
 
 ## How It Works
 
-| トリガー | 動作 |
+| Trigger | Behavior |
 |---|---|
-| **PostToolUse hook** | Edit / Write のたびに変更ファイルを自動スキャン。違反があれば Claude に即警告 |
-| **`/scan` command** | プロジェクト全体をオンデマンドでスキャン |
+| **PostToolUse hook** | Scans the changed file after every Edit / Write. Warns Claude on violations |
+| **`/scan` command** | Full project scan on demand |
 
-17 rules (Python 9 + TypeScript 8)。すべて 34+ のテストフィクスチャで検証済み。
-テストパス (`**/test/**`, `**/tests/**`, `**/*_test.py`, `*.test.ts` 等) は全ルールで除外。
+17 rules (9 Python + 8 TypeScript), validated against 34+ test fixtures.
+Test paths (`**/test/**`, `**/tests/**`, `**/*_test.py`, `*.test.ts`, etc.) are excluded from all rules.
 
 ---
 
@@ -214,12 +214,6 @@ python check_policy.py --changed-only file.py --format json
 python test_rules.py        # Rule validation tests
 python test_check_policy.py  # CLI tests
 ```
-
----
-
-## Requirements
-
-Python 3.12+, [ast-grep](https://ast-grep.github.io/) 0.14+, [ripgrep](https://github.com/BurntSushi/ripgrep) 14.0+
 
 ## License
 
