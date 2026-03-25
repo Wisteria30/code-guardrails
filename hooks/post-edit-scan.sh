@@ -50,19 +50,27 @@ if [ "$EXIT_CODE" -eq 0 ] || [ -z "$OUTPUT" ]; then
   exit 0
 fi
 
-# Violations found — output structured JSON to stdout with decision:block
-# Claude Code parses stdout JSON on exit 0; exit 2 only shows plain stderr text
-REASON="CODE GUARDRAILS: Policy violations found. Fix these violations before proceeding. For intentional fallbacks, add: # policy-approved: REQ-xxx <reason>"
+# Load subagent fix prompt template (violations are passed separately)
+FIX_PROMPT=""
+FIX_PROMPT_FILE="$PLUGIN_DIR/agents/fix-prompt.md"
+if [ -f "$FIX_PROMPT_FILE" ]; then
+  FIX_PROMPT=$(cat "$FIX_PROMPT_FILE")
+fi
+
+SCAN_CMD="${ENGINE_CMD[*]} scan-file --config-dir $PLUGIN_DIR --file"
 
 jq -n \
-  --arg reason "$REASON" \
-  --arg context "$OUTPUT" \
+  --arg violations "$OUTPUT" \
+  --arg fix_prompt "$FIX_PROMPT" \
+  --arg scan_cmd "$SCAN_CMD" \
   '{
     decision: "block",
-    reason: $reason,
+    reason: "CODE GUARDRAILS: Policy violations found. Delegate fix to a subagent (Agent tool) using fixAgentPrompt from hookSpecificOutput. Replace {{VIOLATIONS}} with the violations field. Do NOT fix inline.",
     hookSpecificOutput: {
       hookEventName: "PostToolUse",
-      additionalContext: $context
+      violations: $violations,
+      fixAgentPrompt: $fix_prompt,
+      scanCommand: $scan_cmd
     }
   }'
 

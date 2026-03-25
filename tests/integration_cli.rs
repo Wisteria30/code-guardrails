@@ -17,6 +17,27 @@ fn run_engine(args: &[&str]) -> std::process::Output {
     run_engine_in_dir(args, &project_root())
 }
 
+fn run_engine_with_stdin(args: &[&str], stdin_data: &str) -> std::process::Output {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_code-guardrails-engine"))
+        .args(args)
+        .current_dir(&project_root())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn engine");
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(stdin_data.as_bytes())
+            .expect("failed to write to stdin");
+    }
+    child.wait_with_output().expect("failed to wait for engine")
+}
+
 fn run_engine_in_dir(args: &[&str], cwd: &std::path::Path) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_code-guardrails-engine"))
         .args(args)
@@ -333,4 +354,61 @@ fn changed_only_relative_path_uses_caller_workdir() {
     );
 
     cleanup_temp_dir(&temp_dir);
+}
+
+#[test]
+fn scan_hook_blocks_approval_injection_in_edit() {
+    let tool_input = serde_json::json!({
+        "tool_input": {
+            "file_path": "app.py",
+            "old_string": "x = getattr(obj, 'a', None)",
+            "new_string": "x = getattr(obj, 'a', None)  # policy-approved: REQ-001 reason"
+        }
+    });
+    let output = run_engine_with_stdin(&["scan-hook"], &tool_input.to_string());
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("engine-no-approval-injection"));
+}
+
+#[test]
+fn scan_hook_blocks_approval_injection_in_write() {
+    let tool_input = serde_json::json!({
+        "tool_input": {
+            "file_path": "app.py",
+            "content": "x = val or 'default'  # policy-approved: SPEC-001 reason\n"
+        }
+    });
+    let output = run_engine_with_stdin(&["scan-hook"], &tool_input.to_string());
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("engine-no-approval-injection"));
+}
+
+#[test]
+fn scan_hook_allows_edit_without_approval_injection() {
+    let clean_file = fixture("python/fallback/should_pass/no_fallback.py");
+    let tool_input = serde_json::json!({
+        "tool_input": {
+            "file_path": clean_file.to_str().unwrap(),
+            "old_string": "x = 1",
+            "new_string": "x = 2"
+        }
+    });
+    let output = run_engine_with_stdin(&["scan-hook"], &tool_input.to_string());
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn scan_hook_allows_existing_approval_comment_edits() {
+    let approved_file = fixture("python/fallback/approved/approved_or_default.py");
+    let tool_input = serde_json::json!({
+        "tool_input": {
+            "file_path": approved_file.to_str().unwrap(),
+            "old_string": "x = val  # policy-approved: REQ-001 ok",
+            "new_string": "y = val  # policy-approved: REQ-001 ok"
+        }
+    });
+    let output = run_engine_with_stdin(&["scan-hook"], &tool_input.to_string());
+    assert_eq!(output.status.code(), Some(0));
 }

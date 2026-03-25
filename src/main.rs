@@ -72,11 +72,18 @@ fn run(args: Vec<String>) -> Result<i32, String> {
             io::stdin()
                 .read_to_string(&mut input)
                 .map_err(|e| format!("failed to read stdin: {e}"))?;
-            let file_path = extract_hook_file_path(&input)?;
-            if file_path.is_empty() {
-                return Ok(0);
+            let ti: serde_json::Value = serde_json::from_str(&input)
+                .map_err(|e| format!("failed to parse stdin JSON: {e}"))?;
+            let ti = &ti["tool_input"];
+            if let Some(injection) = detect_approval_injection(ti) {
+                vec![injection]
+            } else {
+                let file_path = extract_hook_file_path(ti);
+                if file_path.is_empty() {
+                    return Ok(0);
+                }
+                scan_file(&cli.common, &catalog, &PathBuf::from(&file_path))?
             }
-            scan_file(&cli.common, &catalog, &PathBuf::from(&file_path))?
         }
     };
 
@@ -886,17 +893,46 @@ fn write_err(err: io::Error) -> String {
     format!("failed to write output: {err}")
 }
 
-fn extract_hook_file_path(input: &str) -> Result<String, String> {
-    let v: serde_json::Value =
-        serde_json::from_str(input).map_err(|e| format!("failed to parse stdin JSON: {e}"))?;
-    let ti = &v["tool_input"];
+fn extract_hook_file_path(ti: &serde_json::Value) -> String {
     if let Some(fp) = ti["file_path"].as_str().filter(|s| !s.is_empty()) {
-        return Ok(fp.to_string());
+        return fp.to_string();
     }
     if let Some(c) = ti["content"].as_str().filter(|s| !s.is_empty()) {
-        return Ok(c.to_string());
+        return c.to_string();
     }
-    Ok(String::new())
+    String::new()
+}
+
+fn detect_approval_injection(ti: &serde_json::Value) -> Option<Finding> {
+    let new_content = ti["new_string"]
+        .as_str()
+        .or_else(|| ti["content"].as_str())
+        .unwrap_or_default();
+    let old_content = ti["old_string"].as_str().unwrap_or_default();
+
+    let new_has = new_content.to_ascii_lowercase().contains("policy-approved");
+    let old_has = old_content.to_ascii_lowercase().contains("policy-approved");
+
+    if new_has && !old_has {
+        let file_path = extract_hook_file_path(ti);
+        let canonical_file = PathBuf::from(&file_path)
+            .canonicalize()
+            .unwrap_or_else(|_| PathBuf::from(&file_path));
+        return Some(Finding {
+            display_file: file_path,
+            canonical_file,
+            line0: 0,
+            rule_id: "engine-no-approval-injection".to_string(),
+            message: "AI agents cannot add policy-approved comments. These must be added by human developers. Fix the violation by rewriting the code.".to_string(),
+            text: new_content.chars().take(200).collect(),
+            metadata: HashMap::from([(
+                "policy_group".to_string(),
+                "approval_injection".to_string(),
+            )]),
+        });
+    }
+
+    None
 }
 
 fn format_json(unsuppressed: &[Finding]) -> Result<(), String> {
@@ -935,7 +971,7 @@ fn format_json(unsuppressed: &[Finding]) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::detect_rule_ids;
+    use super::{detect_approval_injection, detect_rule_ids};
     use std::path::Path;
 
     #[test]
@@ -963,5 +999,56 @@ mod tests {
         assert!(ids.iter().any(|id| id == "ts-no-empty-catch"));
         assert!(ids.iter().any(|id| id == "ts-no-catch-return-default"));
         assert!(ids.iter().any(|id| id == "ts-no-promise-catch-default"));
+    }
+
+    fn parse_tool_input(json: &str) -> serde_json::Value {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        v["tool_input"].clone()
+    }
+
+    #[test]
+    fn approval_injection_detected_in_edit_new_string() {
+        let ti = parse_tool_input(
+            r#"{"tool_input":{"file_path":"app.py","old_string":"x = getattr(obj, 'a', None)","new_string":"x = getattr(obj, 'a', None)  # policy-approved: REQ-001 reason"}}"#,
+        );
+        let finding = detect_approval_injection(&ti);
+        assert!(finding.is_some());
+        assert_eq!(finding.unwrap().rule_id, "engine-no-approval-injection");
+    }
+
+    #[test]
+    fn approval_injection_detected_in_write_content() {
+        let ti = parse_tool_input(
+            r#"{"tool_input":{"file_path":"app.py","content":"x = val or 'default'  # policy-approved: SPEC-001 reason\n"}}"#,
+        );
+        let finding = detect_approval_injection(&ti);
+        assert!(finding.is_some());
+    }
+
+    #[test]
+    fn approval_injection_not_triggered_when_already_present() {
+        let ti = parse_tool_input(
+            r#"{"tool_input":{"file_path":"app.py","old_string":"x = val  # policy-approved: REQ-001 ok","new_string":"y = val  # policy-approved: REQ-001 ok"}}"#,
+        );
+        let finding = detect_approval_injection(&ti);
+        assert!(finding.is_none());
+    }
+
+    #[test]
+    fn approval_injection_not_triggered_on_clean_edit() {
+        let ti = parse_tool_input(
+            r#"{"tool_input":{"file_path":"app.py","old_string":"x = 1","new_string":"x = 2"}}"#,
+        );
+        let finding = detect_approval_injection(&ti);
+        assert!(finding.is_none());
+    }
+
+    #[test]
+    fn approval_injection_detected_case_insensitive() {
+        let ti = parse_tool_input(
+            r#"{"tool_input":{"file_path":"app.py","old_string":"x = 1","new_string":"x = 1  # Policy-Approved: REQ-999 bypass"}}"#,
+        );
+        let finding = detect_approval_injection(&ti);
+        assert!(finding.is_some());
     }
 }
