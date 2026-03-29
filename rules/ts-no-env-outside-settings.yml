@@ -1,0 +1,24 @@
+id: ts-no-env-outside-settings
+language: TypeScript
+severity: error
+files:
+  - '**/*.ts'
+  - '**/*.cts'
+  - '**/*.mts'
+ignores:
+  - '**/test/**'
+  - '**/tests/**'
+  - '**/*.test.ts'
+  - '**/*.spec.ts'
+  - '**/__tests__/**'
+  - '**/generated/**'
+  - '**/openapi/**'
+rule:
+  pattern: process.env
+message: 'Direct env access outside boundary/settings layer — parse environment at the boundary and inject typed config'
+note: 'Environment variables should be parsed once at the boundary (e.g., via Zod schema) and injected as typed config. Direct access scatters unvalidated data throughout the codebase.'
+metadata:
+  policy_group: fallback
+  approval_mode: adjacent_policy_comment
+  semantic_class: boundary_parse_missing
+  allowed_layers: boundary

@@ -24,13 +24,191 @@ const DEFAULT_TEST_GLOBS: &[&str] = &[
 ];
 const BATCH_SIZE: usize = 128;
 const SUSPICIOUS_KEYWORDS: &str = "mock|stub|fake|fallback";
-const RG_CANDIDATE_PATTERN: &str = r"mock|stub|fake|fallback|unittest\.mock|= .* or |\?\?|\|\||except.*pass|catch|suppress|getattr\(|getenv\(|os\.environ\.get\(|\.get\(|next\(";
+const RG_CANDIDATE_PATTERN: &str = r"mock|stub|fake|fallback|unittest\.mock|= .* or |\?\?|\|\||except.*pass|catch|suppress|getattr\(|getenv\(|os\.environ\.get\(|\.get\(|next\(|process\.env|@testing-library|vitest|from 'jest'";
 
 fn approval_regex() -> &'static Regex {
     static APPROVAL_RE: OnceLock<Regex> = OnceLock::new();
     APPROVAL_RE.get_or_init(|| {
         Regex::new(r"(?i)policy-approved:\s*(REQ|ADR|SPEC)-[A-Za-z0-9._-]+").unwrap()
     })
+}
+
+// ---------------------------------------------------------------------------
+// Policy registry: loads ownership.yml + defaults.yml for owner-layer guessing
+// and registry-backed approval validation.
+// ---------------------------------------------------------------------------
+
+struct DefaultEntry {
+    #[allow(dead_code)]
+    symbol: String,
+    #[allow(dead_code)]
+    allowed_layers: Vec<String>,
+}
+
+struct PolicyRegistry {
+    ownership: Vec<(String, Vec<Pattern>)>,
+    defaults: HashMap<String, DefaultEntry>,
+    defaults_file_exists: bool,
+}
+
+impl PolicyRegistry {
+    fn load(policy_dir: &Path) -> Self {
+        let ownership = Self::load_ownership(&policy_dir.join("ownership.yml"));
+        let defaults_path = policy_dir.join("defaults.yml");
+        let defaults_file_exists = defaults_path.is_file();
+        let defaults = Self::load_defaults(&defaults_path);
+        Self {
+            ownership,
+            defaults,
+            defaults_file_exists,
+        }
+    }
+
+    fn empty() -> Self {
+        Self {
+            ownership: Vec::new(),
+            defaults: HashMap::new(),
+            defaults_file_exists: false,
+        }
+    }
+
+    fn load_ownership(path: &Path) -> Vec<(String, Vec<Pattern>)> {
+        let text = match fs::read_to_string(path) {
+            Ok(t) => t,
+            Err(_) => return Vec::new(),
+        };
+        let mut layers = Vec::new();
+        let mut current_layer: Option<String> = None;
+        let mut current_patterns: Vec<Pattern> = Vec::new();
+        let mut in_layers = false;
+
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            if trimmed == "layers:" {
+                in_layers = true;
+                continue;
+            }
+            if !in_layers {
+                continue;
+            }
+            // Indented layer name (e.g., "  boundary:")
+            if !line.starts_with("    ") && line.starts_with("  ") && trimmed.ends_with(':') {
+                if let Some(layer) = current_layer.take() {
+                    layers.push((layer, std::mem::take(&mut current_patterns)));
+                }
+                current_layer = Some(trimmed.trim_end_matches(':').to_string());
+                continue;
+            }
+            // Pattern line (e.g., "    - src/api/**")
+            if line.starts_with("    ") {
+                if let Some(item) = trimmed.strip_prefix("- ") {
+                    let pattern_str = strip_yaml_scalar(item);
+                    if let Ok(p) = Pattern::new(&pattern_str) {
+                        current_patterns.push(p);
+                    }
+                }
+            }
+        }
+        if let Some(layer) = current_layer {
+            layers.push((layer, current_patterns));
+        }
+        layers
+    }
+
+    fn load_defaults(path: &Path) -> HashMap<String, DefaultEntry> {
+        let text = match fs::read_to_string(path) {
+            Ok(t) => t,
+            Err(_) => return HashMap::new(),
+        };
+        let mut defaults = HashMap::new();
+        let mut in_defaults = false;
+        let mut current_id: Option<String> = None;
+        let mut current_symbol = String::new();
+        let mut current_layers: Vec<String> = Vec::new();
+
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            if trimmed == "defaults:" || trimmed == "defaults: {}" {
+                in_defaults = trimmed == "defaults:";
+                continue;
+            }
+            if !in_defaults {
+                continue;
+            }
+            // ID line (e.g., "  REQ-123:")
+            if !line.starts_with("    ") && line.starts_with("  ") && trimmed.ends_with(':') {
+                if let Some(id) = current_id.take() {
+                    defaults.insert(
+                        id,
+                        DefaultEntry {
+                            symbol: std::mem::take(&mut current_symbol),
+                            allowed_layers: std::mem::take(&mut current_layers),
+                        },
+                    );
+                }
+                current_id = Some(trimmed.trim_end_matches(':').to_string());
+                continue;
+            }
+            // Fields (e.g., "    symbol: LocalePolicy.default_locale")
+            if line.starts_with("    ") {
+                if let Some((key, value)) = trimmed.split_once(':') {
+                    let key = key.trim();
+                    let value = strip_yaml_scalar(value);
+                    match key {
+                        "symbol" => current_symbol = value,
+                        "allowed_layers" => {
+                            current_layers = value
+                                .trim_start_matches('[')
+                                .trim_end_matches(']')
+                                .split(',')
+                                .map(|s| s.trim().to_string())
+                                .filter(|s| !s.is_empty())
+                                .collect();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        if let Some(id) = current_id {
+            defaults.insert(
+                id,
+                DefaultEntry {
+                    symbol: current_symbol,
+                    allowed_layers: current_layers,
+                },
+            );
+        }
+        defaults
+    }
+
+    fn guess_layer(&self, file: &Path, root: &Path) -> Option<String> {
+        let relative = file
+            .strip_prefix(root)
+            .unwrap_or(file)
+            .to_string_lossy()
+            .replace('\\', "/");
+        for (layer, patterns) in &self.ownership {
+            for pattern in patterns {
+                if pattern.matches(&relative) {
+                    return Some(layer.clone());
+                }
+            }
+        }
+        None
+    }
+
+    fn is_registered(&self, approval_id: &str) -> bool {
+        // If defaults.yml does not exist, fail-open (accept any ID).
+        // If it exists (even if empty), only registered IDs are valid.
+        !self.defaults_file_exists || self.defaults.contains_key(approval_id)
+    }
 }
 
 fn keyword_comment_regex() -> &'static Regex {
@@ -64,6 +242,20 @@ fn run(args: Vec<String>) -> Result<i32, String> {
     let cli = Cli::parse(args)?;
     let catalog = RuleCatalog::load(&cli.common.config_dir)?;
 
+    // Load policy registry only if --policy-dir is explicitly provided.
+    // The plugin ships policy/ as templates for users to customize;
+    // auto-discovering it would activate strict mode prematurely.
+    let registry = match &cli.common.policy_dir {
+        Some(dir) if dir.is_dir() => PolicyRegistry::load(dir),
+        _ => PolicyRegistry::empty(),
+    };
+
+    // Determine scan root for owner-layer guessing
+    let scan_root = match &cli.mode {
+        Mode::ScanTree { root } => root.canonicalize().unwrap_or_else(|_| root.clone()),
+        _ => env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+    };
+
     let findings = match cli.mode {
         Mode::ScanFile { file } => scan_file(&cli.common, &catalog, &file)?,
         Mode::ScanTree { root } => scan_tree(&cli.common, &catalog, &root)?,
@@ -87,11 +279,34 @@ fn run(args: Vec<String>) -> Result<i32, String> {
         }
     };
 
+    // Compute owner_guess for each finding
+    let findings: Vec<Finding> = findings
+        .into_iter()
+        .map(|mut f| {
+            f.owner_guess = registry.guess_layer(&f.canonical_file, &scan_root);
+            f
+        })
+        .collect();
+
+    // Choke point suppression: if a rule has allowed_layers metadata and the
+    // file IS in one of those layers, suppress the violation (it's allowed there).
+    let findings: Vec<Finding> = findings
+        .into_iter()
+        .filter(|f| {
+            if let Some(allowed) = f.metadata.get("allowed_layers") {
+                let layers: Vec<&str> = allowed.split(',').map(str::trim).collect();
+                !matches!(&f.owner_guess, Some(layer) if layers.contains(&layer.as_str()))
+            } else {
+                true
+            }
+        })
+        .collect();
+
     let mut cache = HashMap::new();
     let mut unsuppressed = Vec::new();
 
     for finding in findings {
-        if !is_approved(&finding, &mut cache) {
+        if !is_approved(&finding, &mut cache, &registry) {
             unsuppressed.push(finding);
         }
     }
@@ -106,6 +321,7 @@ struct CommonOptions {
     config_dir: PathBuf,
     ast_grep_bin: String,
     test_globs: Vec<String>,
+    policy_dir: Option<PathBuf>,
 }
 
 #[allow(clippy::enum_variant_names)]
@@ -135,6 +351,7 @@ impl Cli {
                 .iter()
                 .map(|s| (*s).to_string())
                 .collect(),
+            policy_dir: None,
         };
 
         let mut iter: VecDeque<String> = args.into();
@@ -171,6 +388,9 @@ impl Cli {
                 }
                 "--config-dir" => {
                     common.config_dir = PathBuf::from(next_value(&mut iter, "--config-dir")?);
+                }
+                "--policy-dir" => {
+                    common.policy_dir = Some(PathBuf::from(next_value(&mut iter, "--policy-dir")?));
                 }
                 value if value.starts_with('-') => {
                     return Err(format!("unknown option: {value}"));
@@ -389,6 +609,7 @@ struct Finding {
     message: String,
     text: String,
     metadata: HashMap<String, String>,
+    owner_guess: Option<String>,
 }
 
 impl Finding {
@@ -613,6 +834,12 @@ fn detect_rule_ids(path: &Path, content: &str) -> Vec<String> {
             if lower.contains("getenv(") || lower.contains("os.environ.get(") {
                 ids.insert("py-no-fallback-os-getenv-default".to_string());
             }
+            if lower.contains("os.getenv") || lower.contains("os.environ") {
+                ids.insert("py-no-env-outside-settings".to_string());
+            }
+            if lower.contains("unittest.mock") || lower.contains("from unittest import mock") {
+                ids.insert("py-no-test-import-in-runtime".to_string());
+            }
             if lower.contains("suppress") {
                 ids.insert("py-no-fallback-contextlib-suppress".to_string());
             }
@@ -640,6 +867,15 @@ fn detect_rule_ids(path: &Path, content: &str) -> Vec<String> {
                 ids.insert("ts-no-empty-catch".to_string());
                 ids.insert("ts-no-catch-return-default".to_string());
                 ids.insert("ts-no-promise-catch-default".to_string());
+            }
+            if lower.contains("process.env") {
+                ids.insert("ts-no-env-outside-settings".to_string());
+            }
+            if contains_any(
+                &lower,
+                &["from 'jest'", "from 'vitest'", "@testing-library"],
+            ) {
+                ids.insert("ts-no-test-import-in-runtime".to_string());
             }
         }
         _ => {}
@@ -754,6 +990,7 @@ fn to_finding(
         message: raw.message.unwrap_or_default(),
         text: raw.text.unwrap_or_default(),
         metadata,
+        owner_guess: None,
     }
 }
 
@@ -857,11 +1094,20 @@ fn parse_rg_json_match(json_line: &str, rule_id: &str, scan_root: &Path) -> Opti
                 "approval_mode".to_string(),
                 APPROVAL_MODE_ADJACENT.to_string(),
             ),
+            (
+                "semantic_class".to_string(),
+                "keyword_placeholder".to_string(),
+            ),
         ]),
+        owner_guess: None,
     })
 }
 
-fn is_approved(finding: &Finding, cache: &mut HashMap<PathBuf, Vec<String>>) -> bool {
+fn is_approved(
+    finding: &Finding,
+    cache: &mut HashMap<PathBuf, Vec<String>>,
+    registry: &PolicyRegistry,
+) -> bool {
     if finding.metadata.get("approval_mode").map(String::as_str) != Some(APPROVAL_MODE_ADJACENT) {
         return false;
     }
@@ -886,7 +1132,21 @@ fn is_approved(finding: &Finding, cache: &mut HashMap<PathBuf, Vec<String>>) -> 
         .into_iter()
         .flatten()
         .filter_map(|index| lines.get(index))
-        .any(|line| approval_regex().is_match(line.trim()))
+        .any(|line| {
+            let trimmed = line.trim();
+            if let Some(m) = approval_regex().find(trimmed) {
+                // Extract the approval ID (e.g., "REQ-123") from the match
+                let matched = m.as_str();
+                if let Some(id_start) = matched.find(|c: char| c.is_ascii_uppercase()) {
+                    let id = &matched[id_start..];
+                    registry.is_registered(id)
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        })
 }
 
 fn write_err(err: io::Error) -> String {
@@ -925,10 +1185,14 @@ fn detect_approval_injection(ti: &serde_json::Value) -> Option<Finding> {
             rule_id: "engine-no-approval-injection".to_string(),
             message: "AI agents cannot add policy-approved comments. These must be added by human developers. Fix the violation by rewriting the code.".to_string(),
             text: new_content.chars().take(200).collect(),
-            metadata: HashMap::from([(
-                "policy_group".to_string(),
-                "approval_injection".to_string(),
-            )]),
+            metadata: HashMap::from([
+                ("policy_group".to_string(), "approval_injection".to_string()),
+                (
+                    "semantic_class".to_string(),
+                    "approval_injection".to_string(),
+                ),
+            ]),
+            owner_guess: None,
         });
     }
 
@@ -957,6 +1221,8 @@ fn format_json(unsuppressed: &[Finding]) -> Result<(), String> {
                     "rule_id": f.rule_id,
                     "message": f.message,
                     "code": f.snippet(),
+                    "semantic_class": f.metadata.get("semantic_class").unwrap_or(&String::new()),
+                    "owner_guess": f.owner_guess,
                 })
             })
             .collect();

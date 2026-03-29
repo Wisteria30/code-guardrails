@@ -1,9 +1,15 @@
 ---
-name: fix
-description: Fix all code-guardrails violations in the project using subagents (preserves main context)
+name: fix-violations
+description: >
+  Fix all code-guardrails violations using subagents. Delegates repair to
+  isolated context to preserve main conversation. Use when asked to fix
+  violations, resolve guardrail issues, or run /fix.
+effort: high
 ---
 
-Fix all code-guardrails policy violations in the user's project by delegating to subagents.
+# Fix Violations
+
+Fix all code-guardrails policy violations by delegating to subagents.
 
 ## Step 1: Scan the project
 
@@ -26,8 +32,8 @@ fi
 
 Parse the scan output and group violations by file path. Show the user a summary:
 - Total violation count
-- Violations per file
-- Categories (fallback, test-double, keyword-comment)
+- Violations per file grouped by semantic class
+- Owner layer guess for each file
 
 Ask the user if they want to proceed with fixes.
 
@@ -36,21 +42,22 @@ Ask the user if they want to proceed with fixes.
 For each file (or batch of related files), spawn a subagent using the Agent tool:
 
 - **description**: "Fix guardrail violations in <filename>"
-- **prompt**: Read the fix prompt template from `${CLAUDE_PLUGIN_ROOT}/agents/fix-prompt.md`, replace `{{VIOLATIONS}}` with the violations for that file, and include the scan command for verification:
+- **prompt**: Read the fix prompt template from `${CLAUDE_PLUGIN_ROOT}/agents/guardrail-repairer.md`, replace `{{VIOLATIONS}}` with the violations for that file, and include the scan command for verification:
   `${CLAUDE_PLUGIN_ROOT}/bin/code-guardrails-engine scan-file --file <path> --config-dir ${CLAUDE_PLUGIN_ROOT}`
 
-Spawn up to 5 subagents in parallel per batch. If there are more than 5 files, process in batches of 5. Two subagents must NOT edit the same file.
+Spawn up to 5 subagents in parallel per batch. Two subagents must NOT edit the same file.
 
 ## Step 4: Report results
 
 After all subagents complete, run the full scan again to verify. Report:
 - Files fixed
 - Remaining violations (if any)
-- Summary of architectural changes made
+- Summary of changes: which owner layer, which remedy, what proof was added
 
 ## Important
 
 - Do NOT fix violations in the main conversation context — always use subagents
-- Do NOT add `policy-approved` comments
-- Do NOT make semantic-equivalent rewrites (`.get()` → `if key in dict`, `getattr` → `hasattr`)
-- Fix the root cause: missing schemas, unclear contracts, misplaced responsibilities
+- Do NOT add `policy-approved` comments — only human developers can
+- Do NOT make semantic-equivalent rewrites
+- Fix at the owner layer, not the violation line
+- Each fix must add one proof (type, validation, contract test, or architecture rule)

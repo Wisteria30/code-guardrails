@@ -1,9 +1,14 @@
 ---
-name: scan
-description: Scan the project for policy violations (test doubles and unapproved fallbacks)
+name: scan-project
+description: >
+  Scan the project for code-guardrails policy violations (test doubles,
+  unapproved fallbacks, ownership violations). Use when asked to scan,
+  check for violations, run guardrails, or verify policy compliance.
 ---
 
-Run the code-guardrails policy scanner on the **user's current project** (not the plugin directory).
+# Scan Project
+
+Run the code-guardrails policy scanner on the **user's current project**.
 
 Execute this command:
 ```bash
@@ -19,10 +24,8 @@ else
 fi
 ```
 
-`--config-dir` points to the plugin directory (where sgconfig.yml and rules/ live).
-The positional argument is the user's working directory (the project to scan).
-
 Show the full output to the user. If violations are found:
-1. List each violation with file, line, rule, and code snippet
-2. Suggest using `/fix` to fix them via subagents (preserves main context)
-3. For intentional exceptions, tell the user that only human developers can add `policy-approved` comments
+1. List each violation with file, line, semantic class, owner guess, and code snippet
+2. Group by semantic class for clarity
+3. Suggest using `/fix` to fix them via subagents (preserves main context)
+4. For intentional exceptions, tell the user that only human developers can add `policy-approved` comments

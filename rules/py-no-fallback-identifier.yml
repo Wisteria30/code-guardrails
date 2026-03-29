@@ -22,3 +22,4 @@ note: 'Production code should not contain fallback naming. This usually means AI
 metadata:
   policy_group: fallback
   approval_mode: adjacent_policy_comment
+  semantic_class: fallback_unowned_default

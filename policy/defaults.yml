@@ -1,0 +1,22 @@
+# Registered approval IDs for policy-approved comments.
+# Only IDs listed here are valid when this registry is present.
+# AI agents cannot invent new IDs; only human developers can register them.
+#
+# Format:
+#   <ID>:
+#     symbol: <blessed API or policy object method>
+#     allowed_layers: [<layers where this default is legal>]
+#     reason: <why this default exists>
+#
+# Example:
+#   REQ-123:
+#     symbol: LocalePolicy.default_locale
+#     allowed_layers: [boundary]
+#     reason: explicit locale default from product spec
+#
+#   ADR-7:
+#     symbol: DemoLabelPolicy.resolve
+#     allowed_layers: [infrastructure, boundary]
+#     reason: demo mode label policy
+
+defaults: {}

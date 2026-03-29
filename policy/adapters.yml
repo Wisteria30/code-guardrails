@@ -1,0 +1,26 @@
+# Port-to-adapter mapping for runtime substitute validation.
+# Lists allowed runtime adapters for each port/interface and their contract tests.
+#
+# Format:
+#   <PortName>:
+#     allowed_runtime_adapters:
+#       - <AdapterClassName>
+#     contract_tests:
+#       - <path/to/contract/test>
+#
+# Example:
+#   UserRepository:
+#     allowed_runtime_adapters:
+#       - SqlUserRepository
+#       - InMemoryUserRepository
+#     contract_tests:
+#       - tests/contracts/test_user_repository_contract.py
+#
+#   Mailer:
+#     allowed_runtime_adapters:
+#       - SmtpMailer
+#       - NoopMailer
+#     contract_tests:
+#       - tests/contracts/test_mailer_contract.py
+
+ports: {}
