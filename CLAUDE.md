@@ -49,7 +49,7 @@ Output is JSON. Findings are suppressed if an adjacent line contains a `policy-a
 
 ### Rules (`rules/`)
 
-ast-grep YAML rules. 17 total (9 Python + 8 TypeScript). `sgconfig.yml` points to the `rules/` directory.
+ast-grep YAML rules. 23 total (12 Python + 11 TypeScript). `sgconfig.yml` points to the `rules/` directory.
 
 Naming convention: `{lang}-no-{category}-{pattern}.yml` (e.g., `py-no-fallback-get-default.yml`, `ts-no-empty-catch.yml`)
 
@@ -96,15 +96,38 @@ Reference performance (scan-file hot path, the one that matters for PostToolUse)
 | scan-file (with violations) | ~42ms |
 | raw ast-grep single file | ~47ms |
 
-## AI Code Policy
+## Guardrail Repair Doctrine
 
-code-guardrails hook is active. Every Edit/Write is scanned for violations.
+A fallback is an effect handler, not a convenience.
+A production substitute is an adapter, not a fake.
 
-- NEVER write `except: pass`, empty `catch {}`, or `.catch(() => null)` — log the error and re-raise or wrap
-- NEVER use `mock`, `stub`, `fake` identifiers in production code — test doubles belong in test files only
-- NEVER add silent defaults (`.get(key, default)`, `?? value`, `|| value`) without spec approval — fail explicitly or mark with `# policy-approved: REQ-xxx <reason>`
-- NEVER leave TODO/placeholder/stub implementations — implement fully or raise NotImplementedError
-- Unspecified fallbacks are bugs. If the spec doesn't say "default to X", don't default to X
+When a guardrail fires, never preserve the violating line.
+
+1. Find the owner layer:
+   boundary / domain / application / infrastructure / composition root / test
+
+2. Choose exactly one legal remedy:
+   - boundary parser / settings model
+   - Optional/union + exhaustive handling
+   - typed exception / contract violation
+   - approved policy API
+   - explicit resilience adapter
+   - move double to tests
+   - promote substitute to first-class adapter + contract tests
+
+3. Add one proof:
+   - schema/parser
+   - exhaustiveness check
+   - architecture rule
+   - contract/property/stateful test
+   - registered approval id
+
+Forbidden:
+- renaming mock/stub/fake
+- syntax-equivalent fallback rewrites
+- adding a new inline default
+- inventing a new approval id
+- importing test support into runtime
 
 ## Key Patterns
 

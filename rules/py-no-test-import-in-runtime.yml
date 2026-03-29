@@ -1,0 +1,25 @@
+id: py-no-test-import-in-runtime
+language: Python
+severity: error
+files:
+  - '**/*.py'
+ignores:
+  - '**/test/**'
+  - '**/tests/**'
+  - '**/*_test.py'
+  - '**/test_*.py'
+  - '**/conftest.py'
+  - '**/generated/**'
+  - '**/openapi/**'
+rule:
+  any:
+    - pattern: from unittest.mock import $$$
+    - pattern: from unittest import mock
+    - pattern: import unittest.mock
+message: 'Test support import in production code — test doubles belong in test files only'
+note: 'unittest.mock should only be imported in test files. If production code needs a seam for testing, use dependency injection with a proper interface.'
+metadata:
+  policy_group: test-double
+  approval_mode: none
+  semantic_class: runtime_double_in_graph
+  allowed_layers: tests

@@ -1,0 +1,27 @@
+id: ts-no-test-import-in-runtime
+language: TypeScript
+severity: error
+files:
+  - '**/*.ts'
+  - '**/*.cts'
+  - '**/*.mts'
+ignores:
+  - '**/test/**'
+  - '**/tests/**'
+  - '**/*.test.ts'
+  - '**/*.spec.ts'
+  - '**/__tests__/**'
+  - '**/generated/**'
+  - '**/openapi/**'
+rule:
+  any:
+    - pattern: import $_ from 'jest'
+    - pattern: import $_ from 'vitest'
+    - pattern: import $_ from '@testing-library/$_'
+message: 'Test support import in production code — test doubles belong in test files only'
+note: 'Jest/Vitest/testing-library should only be imported in test files. If production code needs a seam for testing, use dependency injection with a proper interface.'
+metadata:
+  policy_group: test-double
+  approval_mode: none
+  semantic_class: runtime_double_in_graph
+  allowed_layers: tests

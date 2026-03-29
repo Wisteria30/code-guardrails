@@ -1,0 +1,25 @@
+id: py-no-env-outside-settings
+language: Python
+severity: error
+files:
+  - '**/*.py'
+ignores:
+  - '**/test/**'
+  - '**/tests/**'
+  - '**/*_test.py'
+  - '**/test_*.py'
+  - '**/conftest.py'
+  - '**/generated/**'
+  - '**/openapi/**'
+rule:
+  any:
+    - pattern: os.getenv($$$)
+    - pattern: os.environ.get($$$)
+    - pattern: os.environ[$$$]
+message: 'Direct env access outside boundary/settings layer — parse environment at the boundary and inject typed config'
+note: 'Environment variables should be parsed once at the boundary (e.g., via Pydantic BaseSettings) and injected as typed config. Direct access scatters unvalidated data throughout the codebase.'
+metadata:
+  policy_group: fallback
+  approval_mode: adjacent_policy_comment
+  semantic_class: boundary_parse_missing
+  allowed_layers: boundary

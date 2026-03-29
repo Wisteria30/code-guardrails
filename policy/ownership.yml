@@ -1,0 +1,33 @@
+# Owner-layer mapping: maps file paths to architectural layers.
+# Customize these globs for your project structure.
+# The engine matches violation file paths against these patterns
+# to guess which layer owns the fix.
+#
+# If no pattern matches, owner_guess will be null (conservative default).
+
+layers:
+  boundary:
+    - src/api/**
+    - src/events/inbound/**
+    - src/settings/**
+    - src/config/**
+  domain:
+    - src/domain/**
+    - src/models/**
+  application:
+    - src/usecases/**
+    - src/services/**
+  infrastructure:
+    - src/infra/**
+    - src/adapters/**
+  composition_root:
+    - src/main.py
+    - src/app.py
+    - src/bootstrap.ts
+    - src/index.ts
+  tests:
+    - tests/**
+    - test/**
+    - "**/*.test.ts"
+    - "**/*.test.py"
+    - "**/*_test.py"

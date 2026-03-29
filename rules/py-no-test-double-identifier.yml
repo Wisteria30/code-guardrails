@@ -22,3 +22,4 @@ note: 'Production code must not contain mock/stub/fake usage or naming. Keep tes
 metadata:
   policy_group: test-double
   approval_mode: none
+  semantic_class: runtime_double_in_graph

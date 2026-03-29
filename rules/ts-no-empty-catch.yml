@@ -33,3 +33,4 @@ note: 'Fallback behavior is forbidden unless explicitly approved in requirements
 metadata:
   policy_group: fallback
   approval_mode: adjacent_policy_comment
+  semantic_class: fallback_unowned_handler

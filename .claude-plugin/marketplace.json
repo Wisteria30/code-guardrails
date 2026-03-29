@@ -10,7 +10,7 @@
     {
       "name": "code-guardrails",
       "source": "./",
-      "description": "Detect test doubles and unapproved fallbacks in production code. AI coding tools silently introduce mock/stub/fake objects and fallback behaviors — this plugin catches them.",
+      "description": "Owner-layer repair system for AI-generated code. Detects unauthorized fallbacks and test doubles, then guides repair at the correct architectural layer with proof requirements.",
       "version": "0.3.1",
       "author": {
         "name": "Wisteria30"
@@ -21,9 +21,12 @@
       "category": "code-quality",
       "files": [
         ".claude-plugin/",
-        "commands/",
+        "agents/",
+        "bin/",
         "hooks/",
+        "policy/",
         "rules/",
+        "skills/",
         "fixtures/",
         "src/",
         "tests/",
